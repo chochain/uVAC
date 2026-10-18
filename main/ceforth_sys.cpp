@@ -64,11 +64,6 @@ static const char* _format(DU v, int b, char* buf, int max, int w, char fill=' '
     return &buf[i];
 }
 /// =============================================================
-extern List<Code*> dict;                   ///< dictionary
-extern List<U8>    pmem;                   ///< parameter memory (for colon definitions)
-extern U8          *MEM0;                  ///< base of parameter memory block
-
-#define TOS       (vm.tos)                 /**< Top of stack                            */
 #define SS        (vm.ss)                  /**< parameter stack (per task)              */
 #define RS        (vm.rs)                  /**< return stack (per task)                 */
 #define MEM(a)    (MEM0 + (IU)UINT(a))     /**< pointer to address fetched from pmem    */
@@ -174,133 +169,175 @@ void pstr(const char *str, io_op op) {
 ///
 ///> Debug functions
 ///
-int pfa2didx(IU ix) {                          ///> reverse lookup
-    if (IS_PRIM(ix)) return (int)ix;           ///> primitives
-    IU pfa = ix & ~EXT_FLAG;                   ///< pfa (mask colon word)
-    for (int i = dict.idx - 1; i > 0; --i) {
-        Code *c = dict[i];
-        if (pfa == (c->is_udf() ? c->pfa : c->xtoff())) return i;
+/// Token <-> pointer helpers (cells in pmem hold 32-bit tokens of real addresses)
+///   primitive : token of its function address (lambda in g_rom)
+///   colon word: token of its body address in pmem, compiled as [_:][body token]
+///   branches  : token of the target address in pmem
+///
+#define PTR(t)  ((const IU*)(Code::XT0 | (UFP)(IU)(t)))    /**< token => address                */
+#define OFF(p)  ((IU)((const U8*)(p) - MEM0))              /**< address => offset in pmem       */
+#define TOK(p)  (Code::Token((void*)(p)))
+
+static const Code *tok2code(IU tok) {                      ///< reverse lookup a primitive
+    for (int i = 0; i < g_romsz; i++) {
+        if (TOK(g_rom[i].xt) == tok) return &g_rom[i];
     }
-    return 0;                                  /// * not found
+    for (int i = dict.idx - 1; i >= 0; --i) {
+        if (TOK(dict[i]->xt) == tok) return dict[i];
+    }
+    return nullptr;
+}
+static const U8 *word_end(IU pfa) {                         ///< end of a colon word's parameter area
+    for (int i = dict.idx - 1; i >= 0; --i) {
+        if (TOK(dict[i]->xt) != pfa) continue;
+        return (i + 1 < dict.idx)
+            ? (const U8*)dict[i + 1]->name                  /// * next word's name field
+            : (const U8*)&pmem[pmem.idx];                   /// * or end of pmem
+    }
+    return (const U8*)&pmem[pmem.idx];
+}
+static int nvar_cells(const U8 *end, const IU *data) {     ///< # of DU cells from data to end of word
+    int bytes = (int)(end - (const U8*)data);
+    return bytes > 0 ? bytes / (int)sizeof(DU) : 0;
+}
+///
+/// How to decode the cells that follow an opcode (everything else is a plain, operand-less primitive)
+///
+typedef enum { NOP, ENTER, EXIT, LIT, VAR, VBRAN, STR, DOTQ, BRAN } see_op;
+static const struct { const char *name; see_op op; } SEE_OP[] = {
+    { "_:",    ENTER },                     ///< [_:][body token]
+    { "_;",    EXIT  },                     ///< end of word
+    { "_lit",  LIT   },                     ///< [_lit][value]
+    { "_var",  VAR   },                     ///< [_var][data...]
+    { "vbran", VBRAN },                     ///< [vbran][does> token][data...]
+    { "_str",  STR   },                     ///< [_str][len16, chars, 0, pad]
+    { "_dotq", DOTQ  },                     ///< [_dotq][len16, chars, 0, pad]
+    { "_bran", BRAN  }, { "_0bran", BRAN }, ///< [op][target token]
+    { "_next", BRAN  }, { "_loop",  BRAN },
+};
+static see_op get_op(const Code *c) {
+    for (const auto &o : SEE_OP) {
+        if (!strcmp(c->name, o.name)) return o.op;
+    }
+    return NOP;
 }
 
-int  pfa2nvar(IU pfa) {
-    IU  w  = *(IU*)MEM(pfa);
-    if (w != VAR && w != VBRAN) return 0;
-    
-    IU  i0 = pfa2didx(pfa | EXT_FLAG);
-    if (!i0) return 0;
-    IU  p1 = (i0+1) < dict.idx ? TONAME(i0+1) : pmem.idx;
-    int n  = p1 - pfa - sizeof(IU) * (w==VAR ? 1 : 2);    ///> CC: calc # of elements
-    return n;
-}
+void see(IU pfa, int base) {                                ///< disassemble a colon word
+    const IU *ip = PTR(pfa);                                ///< body address from token
+    const U8 *wend = word_end(pfa);                         ///< end of this word's pmem
+    bool done = false;
+    char tmp[66];
+    auto num = [&](DU v) { return _format(v, base, tmp, sizeof(tmp), 0); };
 
-void to_s(IU w, U8 *ip, int base) {
+    for (int guard = 0; guard < 256 && !done; guard++) {    ///> guard against a runaway
+        IU tok = *ip;
+        const Code *c = tok2code(tok);
+        fout("  ");
 #if CC_DEBUG
-    fout("( %04x[%4x] ) ", (IU)(ip - MEM0), w);
+        fout("( %04x ) ", OFF(ip));
 #endif // CC_DEBUG
-    
-    ip += sizeof(IU);                   ///> calculate next ip
-    switch (w) {
-    case LIT:  {
-        char tmp[66];
-        const char *vstr = _format(*(DU*)ip, base, tmp, sizeof(tmp), 0);
-        fout("%s ( lit )", vstr);
-    } break;
-    case STR:  fout("s\" %s\"",   (char*)ip);   break;
-    case DOTQ: fout(".\" %s\"",   (char*)ip);   break;
-    case VAR:
-    case VBRAN: {
-        int n  = pfa2nvar(UINT(ip - MEM0 - sizeof(IU)));
-        IU  ix = (IU)(ip - MEM0 + (w==VAR ? 0 : sizeof(IU)));
-        for (int i = 0, a=DALIGN(ix); i < n; i+=sizeof(DU)) {
-            fout("%x ", *(DU*)MEM(a + i));
+        if (!c) {                                           /// * not an opcode we know
+            fout("?? %08x", tok);
+            fout_flush('\n');
+            done = true;
+            break;
         }
-    }                                   /// no break, fall through
-    default: fout("%s", prim_or_dict(w)->name); break;
-    }
-    switch (w) {
-    case NEXT: case LOOP:
-    case BRAN: case ZBRAN: case VBRAN:  ///> display jmp target
-        fout(" $%04x", *(IU*)ip);
-        break;
-    default: /* do nothing */ break;
-    }
-}
+        const IU *nx  = ip + 1;                             ///< next cell (after opcode)
+        bool      end = false;
 
-void see(IU pfa, int base) {
-    U8 *ip = MEM(pfa);                  ///< memory pointer
-    while (1) {
-        IU w = pfa2didx(*(IU*)ip);      ///< fetch word index by pfa
-        if (!w) break;                  ///> loop guard
-        
-        fout("  ");                     /// * indent
-        to_s(w, ip, base);              /// * display opcode
+        switch (get_op(c)) {
+        case ENTER: {
+            const Code *w = tok2code(*nx++);
+            fout("%s", w ? w->name : "?");
+        } break;
+        case EXIT:  fout(";"); end = true;                     break;
+        case LIT: {
+            fout("%s ( lit )", num(*(const DU*)nx));
+            nx += sizeof(DU) / sizeof(IU);                  /// * same advance as _lit
+        } break;
+        case VAR:
+        case VBRAN: {
+            bool is_var = get_op(c) == VAR;
+            fout("%s", c->name);
+            if (!is_var && *nx) fout(" does> $%04x", OFF(PTR(*nx)));
+            if (!is_var) nx++;                              /// * skip does> cell
+            const DU *d = (const DU*)nx;
+            int n = nvar_cells(wend, nx);
+            for (int i = 0; i < n; i++) fout(" %s", num(d[i]));
+            end = true;                                     /// * data ends the word
+        } break;
+        case STR:
+        case DOTQ: {
+            U16 len = *(const U16*)nx;
+            fout(get_op(c) == STR
+                 ? "s\" %s\"" : ".\" %s\"", (const char*)nx + sizeof(U16));
+            nx = (const IU*)((const U8*)nx + ALIGN(sizeof(U16) + len + 1));
+        } break;
+        case BRAN: fout("%s $%04x", c->name, OFF(PTR(*nx++))); break;
+        default:   fout("%s", c->name);                        break;
+        }
         fout_flush('\n');
-        if (w==EXIT || w==VAR) break;   /// * end of word
-
-        ip += sizeof(IU);               ///> advance ip (next opcode)
-        switch (w) {                    ///> extra bytes to skip
-        case LIT:   ip += sizeof(DU);                    break; 
-        case STR:   case DOTQ:  ip += STRLEN((char*)ip); break;
-        case BRAN:  case ZBRAN:
-        case NEXT:  case LOOP:  ip += sizeof(IU);        break;
-        case VBRAN: ip = MEM(*(IU*)ip);                  break;
-        }
+        if (end) { done = true; break; }
+        ip = nx;
     }
+    if (!done) { fout("  ..."); fout_flush('\n'); }       /// * listing was truncated
 }
 
 void words() {
-    const int WIDTH = 44;
-    int sz = 0;
-    for (int i=0; i<dict.idx; i++) {
-        const char *nm = dict[i]->name;
+    const int WIDTH = 56;
+    auto blip = [](int &sz, int i, const Code &c) {
+        const char *nm = c.name;
         const int  len = strlen(nm);
 #if CC_DEBUG > 1
         if (nm[0]) {
 #else  //  CC_DEBUG > 1
         if (nm[len-1] != ' ') {
 #endif // CC_DEBUG > 1
-            sz += len + 1;
-            fout(" %s", nm);
+            sz += len + 2;
+            fout("  %s", nm);
         }
         if (sz > WIDTH) {
             sz = 0;
             fout_flush('\n');
         }
-    }
+    };
+    int sz = 0;
+    for (int i = 0; i < g_romsz;  ++i) blip(sz, i, g_rom[i]);
+    for (int i = 0; i < dict.idx; ++i) blip(sz, i, *dict[i]);
     fout_flush('\n');
 }
 
 static int load_dp = 0;
 void load(VM &vm, const char* fn) {
     load_dp++;                           /// * increment depth counter
-    RS.push(vm.ip);                      /// * save context
+    RS.push(*vm.ip);                     /// * save context
     RS.push(vm.state);
     vm.state = NEST;                     /// * +recursive
     forth_include(fn);                   /// * include file
     vm.state = static_cast<vm_state>(RS.pop());
-    vm.ip   = UINT(RS.pop());            /// * context restored
+    *vm.ip   = UINT(RS.pop());           /// * context restored
     --load_dp;                           /// * decrement depth counter
 }
 
 void ss_dump(VM &vm, bool forced) {
     if (load_dp) return;                 /// * skip when including file
     
-    SS.push(TOS);
     for (int i=0; i<SS.idx; i++) {
         char tmp[66];
         fout("%s ", _format(SS[i], *MEM(vm.base), tmp, sizeof(tmp), 0));
     }
-    TOS = SS.pop();
     fout("ok\n");
     fout_flush();
 }
+
 void mem_dump(U32 p0, IU sz, int base) {
-    for (IU i=p0 & ~7; i<=(p0+sz); i+=8) {
-        fout("%04x: ", i);
-        for (int j=0; j<8; j++) fout("%02x ", (int)pmem[i+j]);
-        for (int j=0; j<8; j++) {
+    for (IU i=p0 & ~15; i<=(p0+sz); i+=16) {
+        fout("%08zx %04x: ", (UFP)&pmem[i], i);
+        for (int j=0; j<16; j++) {
+            U8 c = pmem[i+j];
+            fout("%02x%s", (int)c, (j % 4 == 3 ? " " : ""));
+        }
+        for (int j=0; j<16; j++) {
             U8 c = pmem[i+j] & 0x7f;
             fout("%c", ((c==0x7f||c<0x20) ? '_' : c));
         }
@@ -310,14 +347,14 @@ void mem_dump(U32 p0, IU sz, int base) {
 }
 
 void dict_dump() {
-    fout("XT0=%x\n", (U32)Code::XT0);
-    for (int i=0; i<dict.idx; i++) {
-        Code *c = dict[i];
-        fout("%03d> xt=%p, attr=%x, xtoff=%04x %s\n",
-             i, c->xt, (c->attr & 0x3),
-             (c->is_udf() ? c->pfa : c->xtoff()), c->name);
+    auto blip = [](int i, const Code &c) {
+        fout("%03d> xt=%p, attr=%x, xtoff=%08zx %s\n",
+             i, c.xt, (c.attr & 0x3), (UFP)c.xt & 0xFFFFFFFF, c.name);
         fout_flush();
-    }
+    };
+    fout("XT0=%zx\n", Code::XT0);
+    for (int i=0; i < g_romsz; i++)  blip(i, g_rom[i]);
+    for (int i=0; i < dict.idx; i++) blip(i, *dict[i]);
 }
 ///====================================================================
 ///
