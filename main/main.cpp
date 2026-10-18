@@ -65,7 +65,7 @@ void forth_include(const char *fn) {
 ///
 /// main program - Note: Arduino and ESP32 have their own main-loop
 ///
-int main0(int ac, char* av[]) {
+int main(int ac, char* av[]) {
     forth_init();                             ///> initialize dictionary
     
     mem_stat();                               ///> show memory status
@@ -82,7 +82,7 @@ int main0(int ac, char* av[]) {
 #include "esp32/xgl.h"
 #include <iostream>
 
-int main(int argc, char *argv[]) {
+int main1(int argc, char *argv[]) {
     std::cout << "=== CONFIGURING LINUX DUAL-CORE THREAD PLUMBING PIPELINES ===" << std::endl;
 
     /* 1. Allocate the communication queues safely on the host system memory map */
