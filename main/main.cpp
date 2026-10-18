@@ -61,25 +61,12 @@ void forth_include(const char *fn) {
 
     ifile.close();
 }
-///====================================================================
-///
-/// main program - Note: Arduino and ESP32 have their own main-loop
-///
-int main(int ac, char* av[]) {
-    forth_init();                             ///> initialize dictionary
-    
-    mem_stat();                               ///> show memory status
-    srand((int)time(0));                      ///> seed random generator
-    outer(cin);                               ///> Forth outer interpreter
-    
-    forth_teardown();                         ///> clean up before we go
-    cout << APP_VERSION << " Done!" << endl;
-    return 0;
-}
+
+#if (ARDUINO || ESP32)
 ///====================================================================
 #include "esp32/xque.h"
-#include "esp32/xforth.h"
-#include "esp32/xgl.h"
+#include "esp32/xforth_actor.h"
+#include "esp32/xgl_actor.h"
 #include <iostream>
 
 int main1(int argc, char *argv[]) {
@@ -130,3 +117,20 @@ int main1(int argc, char *argv[]) {
     }        
     return 0;
 }
+#else // (ARDUINO || ESP32)
+///====================================================================
+///
+/// main program - Note: Arduino and ESP32 have their own main-loop
+///
+int main(int ac, char* av[]) {
+    forth_init();                             ///> initialize dictionary
+    
+    mem_stat();                               ///> show memory status
+    srand((int)time(0));                      ///> seed random generator
+    outer(cin);                               ///> Forth outer interpreter
+    
+    forth_teardown();                         ///> clean up before we go
+    cout << APP_VERSION << " Done!" << endl;
+    return 0;
+}
+#endif // (ARDUINO || ESP32)
