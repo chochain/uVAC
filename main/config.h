@@ -11,26 +11,72 @@
 #define USE_FLOAT       0               /**< support floating point */
 #define DO_MULTITASK    0               /**< multitasking/pthread   */
 ///@}
+///@name Calling convention of the threaded-code words (see ceforth.h)
+///@brief  override with -DE4_TRAMP=.. -DE4_NOS=..
+///  E4_TRAMP 0: every word tail-calls the next one (needs sibling-call support)
+///              x86, ARM, RISC-V should use this
+///           1: every word returns {next,ip,sp,tos} to a trampoline loop
+///              (needed on windowed-ABI Xtensa i.e. ESP32/S2/S3: GCC emits
+///               callx8+retw there, so a tail-call chain would overflow the stack)
+///  E4_NOS   1: TOS and NOS cached in registers (5 args: vm,ip,sp,tos,nos)
+///           0: TOS only                        (4 args: vm,ip,sp,tos)
+///              AAPCS (ARM) has only r0-r3, so a 5th arg goes via the stack;
+///              the trampoline returns 4 registers, so it has no room for nos.
+///  E4_RTOP  1: return-stack pointer travels in a register too (one more argument).
+///              x86-64 SysV has 6 arg regs, RISC-V 8, 
+///           0: ARM only 4, so it won't fit. Not with the Xtensa trampoline: the
+///              4-register return value is full.
+///@{
+#ifndef E4_TRAMP
+  #if defined(__XTENSA__) && defined(__XTENSA_WINDOWED_ABI__)
+  #define E4_TRAMP      1
+  #else
+  #define E4_TRAMP      0
+  #endif
+#endif // E4_TRAMP
+
+#ifndef E4_NOS
+  #if E4_TRAMP || defined(__arm__) || defined(__thumb__)
+  #define E4_NOS  0
+  #else
+  #define E4_NOS  1
+  #endif
+#endif
+
+#ifndef E4_RTOP
+  #if E4_TRAMP || defined(__arm__) || defined(__thumb__)
+  #define E4_RTOP 0
+  #else
+  #define E4_RTOP 1
+  #endif
+#endif
+
+#if E4_TRAMP && (E4_NOS || E4_RTOP)
+  #error "E4_TRAMP needs E4_NOS=0 and E4_RTOP=0"
+#endif
+///@}
 ///@name Memory block configuation
 ///@{
-#define E4_RS_SZ        32
-#define E4_SS_SZ        32
+#define E4_RS_SZ        48
+#define E4_SS_SZ        48
 #define E4_DICT_SZ      400
 #define E4_PMEM_SZ      (32*1024)
 #define E4_VM_POOL_SZ   4               /**< one plus # cors       */
 #define E4_PAD_SZ       66              /**< temp pad size         */
 #define E4_IBUF_SZ      128             /**< input buffer size     */
 #define E4_OBUF_SZ      1024            /**< output buffer size    */
+#define USER_AREA       (ALIGN16(E4_VM_POOL_SZ))
 ///@}
 ///
 ///@name Logical units (instead of physical) for type check and portability
 ///@{
+typedef uint64_t        U64;   ///< unsigned 64-bit integer
 typedef uint32_t        U32;   ///< unsigned 32-bit integer
 typedef int32_t         S32;   ///< signed 32-bit integer
 typedef uint16_t        U16;   ///< unsigned 16-bit integer
 typedef uint8_t         U8;    ///< byte, unsigned character
 typedef uintptr_t       UFP;   ///< function pointer as integer
-typedef uint16_t        IU;    ///< instruction pointer unit
+typedef uint32_t        IU;    ///< instruction pointer unit
 
 #include <cmath>
 #if USE_FLOAT
@@ -90,7 +136,7 @@ typedef int32_t         DU;
 #define ALIGN(sz)       ALIGN4(sz)
 // #define ALIGNAS         alignas(std::hardware_destructive_interference_size) C++17 but didn't work
 #define ALIGNAS         alignas(64)
-#define STRLEN(s)       (ALIGN(strlen(s)+1))  /** calculate string size with alignment */
+#define STRLEN(s)       (ALIGN(sizeof(U16)+strlen(s)+1))  /** calculate string size with alignment */
 #define CALLBACK        fout_cb((int)fout.str().length(), fout.str().c_str()); fout.str("")
 #define FLUSH           flush; CALLBACK
 ///@}
@@ -102,6 +148,9 @@ typedef int32_t         DU;
     #define DALIGN(sz)      (sz)
     #define to_string(i)    string(String(i).c_str())
     #define yield()         vTaskDelay(1)
+    #if    ESP32
+        #define analogWrite(c,v,mx) ledcWrite((c),(8191/mx)*min((int)(v),mx))
+    #endif // ESP32
 
 #else  // !(ARDUINO || ESP32)
     #include <chrono>
@@ -118,27 +167,28 @@ typedef int32_t         DU;
 ///@name Logging support
 ///@{
 #if (ARDUINO || ESP32)
-    #define LOGS(s)     Serial.print(F(s))
-    #define LOG(v)      Serial.print(v)
-    #define LOGX(v)     Serial.print(v, HEX)
+    #define LOG(fmt,...) Serial.print(fmt, __VA_ARGS__)
+    #define ERR(...)     Serial.printf("[ERROR] %s\n", __VA_ARGS__)
 #else  // !(ARDUINO || ESP32)
-    #define LOGS(s)     printf("%s", s)
-    #define LOG(v)      printf("%-ld", (int64_t)(v))
-    #define LOGX(v)     printf("%-lx", (uint64_t)(v))
+    #define LOG(fmt,...) printf(fmt, __VA_ARGS__)
+    #define ERR(...)     printf("[ERROR] %s\n", __VA_ARGS__)
 #endif // (ARDUINO || ESP32)
+
+#if CC_DEBUG > 1
+#if (ARDUINO || ESP32)
+    #define DEBUG(fmt,...) Serial.print(fmt, __VA_ARGS__)
+#else  // !(ARUINO || ESP32)
+    #define DEBUG(fmt,...) printf(fmt, __VA_ARGS__)
+#endif // (ARDUINO || ESP32)
+#else  // CC_DEBUG > 1
+#define DEBUG(fmt,...)
+#endif // CC_DEBUG > 1
     
-#define LOG_NA()        LOGS("N/A\n")
-#define LOG_KV(k, v)    LOGS(k); LOG(v)
-#define LOG_KX(k, x)    LOGS(k); LOGX(x)
-#define LOG_HDR(f, s)   LOGS(f); LOGS("("); LOGS(s); LOGS(") => ")
-#define LOG_DIC(i)      LOGS("dict["); LOG(i); LOGS("] ");  \
-                        LOGS(dict[i].name); LOGS(" attr="); \
-                        LOGX(dict[i].attr); LOGS("\n")
 #if DO_MULTITASK
 #if CC_DEBUG
 #include <stdarg.h>
     
-#if (ESP32 || ARDUINO)
+#if (ARDUINO || ESP32)
 #define VM_HDR(vm, fmt, ...)                                \
     printf("[%02d.%d]%-4x" fmt,                             \
            (vm)->id, (vm)->state, (vm)->ip, ##__VA_ARGS__)
