@@ -1,0 +1,15 @@
+#!/bin/bash
+xhost +
+docker run -it --rm --user $(id -u):$(id -g) \
+       --cap-add=SYS_ADMIN --security-opt seccomp=unconfined \
+       --network host --cap-add=SYS_ADMIN --security-opt seccomp=unconfined \
+       -e DOCKER_NAME=cuda11 -e CUDA_HOME=/usr/local/cuda \
+       -e DISPLAY=$DISPLAY -e TERM=ansi-term \
+       -e XDG_RUNTIME_DIR="/tmp/$(id -u)" \
+       -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
+       -v /tmp/.X11-unix:/tmp/.X11-unix \
+       -v /u01:/u01 \
+       -v $HOME:$HOME -w $HOME \
+       espressif/idf:v5.3 
+#       idf.py -DIDF_TARGET=esp32s3 "$@"
+xhost -
