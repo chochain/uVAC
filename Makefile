@@ -1,17 +1,19 @@
 CC = g++
-CC_FLAG = -std=c++17 -g -O3 -Wall -pthread \
+CC_FLAG = -std=c++17 -g -O2 -Wall -pthread \
+          -DXT0_U32=1 -DE4_NOS=0 -DE4_RTOP=1 \
+          -fno-pie -no-pie -fcf-protection=none \
           -fomit-frame-pointer -fno-stack-check -fno-stack-protector \
 		  -march=native -ffast-math -funroll-loops
 
 SRCS = \
-	src/ceforth.cpp 	 \
-	src/ceforth_sys.cpp  \
-	src/ceforth_task.cpp \
+	main/ceforth.cpp 	 \
+	main/ceforth_sys.cpp  \
+	main/ceforth_task.cpp \
 
 ESPS = \
-	src/esp32/xserver.cpp \
-	src/esp32/xforth.cpp  \
-	src/esp32/xgl.cpp
+	main/esp32/xserver2.cpp \
+	main/esp32/xforth.cpp   \
+	main/esp32/xgl_actor.cpp
 
 FLST = \
 	tests/eforth \
@@ -24,18 +26,18 @@ esp: tests/xeforth
 all: exe
 
 %.o: %.cpp
-	$(CC) $(CC_FLAG) -Isrc -c -o $@ $<
+	$(CC) $(CC_FLAG) -Imain -c -o $@ $<
 
-tests/eforth: platform/main.o $(SRCS:%.cpp=%.o)
+tests/eforth: main/main.o $(SRCS:%.cpp=%.o)
 	$(CC) $(CC_FLAG) -o $@ $^
 
-tests/xeforth: platform/main.o $(SRCS:%.cpp=%.o) $(ESPS:%.cpp=%.o)
+tests/xeforth: main/main.o $(SRCS:%.cpp=%.o) $(ESPS:%.cpp=%.o)
 	$(CC) $(CC_FLAG) -o $@ $^
 
 debug: tests/eforth
 	/bin/valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes $^
 
 clean:
-	rm platform/main.o src/*.o src/esp32/*.o $(FLST)
+	rm main/*.o main/esp32/*.o $(FLST)
 
 
