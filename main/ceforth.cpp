@@ -173,7 +173,7 @@ const Code *find(const char *s) {
         DEBUG("find(%s) => %s[%d]:%08zx attr=%d %s\n",
             s, w->is_udf() ? "dict" : "g_rom", i, (UFP)w->xt, w->attr, w->name);
     }
-    else DEBUG("find(%s) => %s\n", s, "N/A");
+    else { DEBUG("find(%s) => %s\n", s, "N/A"); }
     return w;
 }
 ///@}
@@ -262,8 +262,8 @@ void s_quote(XT_REFS, bool dotq=false) {
 ///
 XT_RET doSTOP(XT_ARGS) {
 #if E4_TRAMP
-    return Ret{ 0, ip, sp, tos };                          /// * fp==0 ends the trampoline
-#else // E4_TRAMP
+    return Ret{ 0, sp, PASS };        /// * ip==0 ends the trampoline
+#else  // E4_TRAMP
     // Commit current register window variables back to permanent storage on exit
     IP  = ip;
     SP  = sp - SS;
@@ -279,16 +279,29 @@ XT_RET doSTOP(XT_ARGS) {
 }
 static IU gStop[] = { TOK(doSTOP) };  ///< tempoline sentinal
 
-#define UNNEST()     {                                     \
+#define UNNEST()     {                                         \
         if (RDEPTH <= 0) return doSTOP(XT_PASS);               \
-        ip = XT(RPOP());                                 \
-        NEXT();                                            \
+        ip = XT(RPOP());                                       \
+        NEXT();                                                \
     }
 
 #if E4_TRAMP
 static void run(VM &vm, Ret r) {      ///< trampoline: constant C stack, one call+return per word
-    while (r.fp) r = r.fp(vm, r.ip, r.sp, r.tos);
-    IP = r.ip; SP = r.sp - SS; r.sp[-1] = r.tos;     /// TOS shadow slot
+    IU *ip;
+    while ((ip = r.ip)) {
+        FPTR fp  = NEXT_FP;
+#if E4_RTOP    
+        r  = fp(vm, r.ip, r.sp, r.tos, r.rp);
+#else  // E4_RTOP        
+        r  = fp(vm, r.ip, r.sp, r.tos);
+#endif // E4_RTOP        
+    }
+    IP  = 0;
+    SP  = r.sp - SS;
+    r.sp[-1] = r.tos;
+#if E4_RTOP
+    RP  = r.rp - RS;
+#endif // E4_RTOP
 }
 #endif // E4_TRAMP
 
@@ -309,7 +322,7 @@ void nest(VM& vm) {                   ///< inner-interpreter i.e. doLIST
 
     FPTR fp = NEXT_FP;
 #if E4_TRAMP
-    run(vm, Ret{ fp, ip, sp, tos });
+    run(vm, fp(XT_PASS));
 #else  // E4_TRAMP
     fp(XT_PASS);                    /// * the whole word chain runs by tail calls; doSTOP returns
 #endif // E4_TRAMP
@@ -332,7 +345,7 @@ void CALL(VM &vm, const Code &c) {
         DU *rp  = RS + RP;
 #endif // E4_RTOP
 #if E4_TRAMP
-        run(vm, c.xt(vm, ip, sp, tos));
+        run(vm, c.xt(XT_PASS));
 #else  // E4_TRAMP
         c.xt(XT_PASS);
 #endif // E4_TRAMP
@@ -489,8 +502,8 @@ constexpr Code g_rom[] = {
     IMMD("(",       SCAN(')')),
     IMMD(".(",      pstr(SCAN(')'))),
     IMMD("\\",      SCAN('\n')),
-    IMMD("s\"",     s_quote(XT_RPAS, false)),
-    IMMD(".\"",     s_quote(XT_RPAS, true)),
+    IMMD("s\"",     s_quote(XT_PASS, false)),
+    IMMD(".\"",     s_quote(XT_PASS, true)),
     /// @}
     /// @defgroup Branching ops
     /// @brief - if...then, if...else...then
@@ -735,7 +748,7 @@ void dict_validate() {
     if ((UFP)doSTOP > max) max = (UFP)doSTOP;
     U64 off = max - Code::XT0;
 
-    LOG("XT0: 0x%zx, OFF: 0x%zx\n", Code::XT0, off);
+    LOG("XT0: 0x%zx, OFF: 0x%llx\n", Code::XT0, off);
     if (off > 0xFFFFFFFFULL)
         ERR("Execution memory space exceeds 32-bit offset limits!");
 }
