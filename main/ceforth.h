@@ -2,7 +2,6 @@
 #define __EFORTH_SRC_CEFORTH_H
 #include <stdio.h>
 #include <stdint.h>     // uintxx_t
-#include <exception>    // try...catch, throw
 #include "config.h"     // configuation and cross-platform support
 #ifndef XT0_U32
   #if __SIZEOF_POINTER__ == 8
@@ -10,7 +9,7 @@
   #else
   #define XT0_U32  1      /** 32-bit target: pointers are already tokens         */
   #endif
-#endif
+#endif // XT0_U32
 #define XT0_MSK  0xFFFFFFFF00000000ULL
 
 using namespace std;
@@ -58,7 +57,7 @@ struct List {
     
     List()  {
         raw = N ? new T[N + G]{} : 0;                ///< 2 guard cells below v[0] for register-window spills
-        if (N && !raw) throw "ERR: List allot failed";
+        if (N && !raw) ERR("List allot failed");
         v = raw ? raw + G : 0;
     }
     ~List() {
@@ -178,40 +177,39 @@ struct ALIGNAS VM {
 /// @param Stk Localized register pack
 #if E4_NOS
 #define NARG      DU tos, DU nos
+#define NREF      DU &tos, DU &nos
 #define NPAS      tos, nos
 #else  // E4_NOS
 #define NARG      DU tos
+#define NREF      DU &tos
 #define NPAS      tos
 #endif // E4_NOS
 
 #if E4_RTOP
 #define ARGS      NARG, DU *rp
+#define REFS      NREF, DU *&rp
 #define PASS      NPAS, rp
 #else // E4_RTOP
 #define ARGS      NARG
+#define REFS      NREF
 #define PASS      NPAS
 #endif // E4_RTOP
 
 #if E4_TRAMP
-struct Ret;
-typedef Ret        (*FPTR)(VM &vm, IU *ip, DU *sp, DU tos);    ///< returns the next step (4 regs on 32-bit)
-struct  Ret        { FPTR fp; IU *ip; DU *sp; DU tos; };
+#if E4_RTOP
+struct  Ret        { IU *ip; DU *sp; DU tos; DU *rp; };
+#else  // E4_RTOP
+struct  Ret        { IU *ip; DU *sp; DU tos; };
+#endif // E4_RTOP
 #define XT_RET     Ret
 #else // E4_TRAMP
-typedef void       *(*FPTR)(VM &vm, IU *ip, DU *sp, ARGS);     ///< tail-call (returns NEXT)
 #define XT_RET     void *
 #endif // E4_TRAMP
+typedef XT_RET     (*FPTR)(VM &vm, IU *ip, DU *sp, ARGS);      ///< trampoline or tail-call (returns NEXT)
 
 #define XT_ARGS    VM &vm, IU *ip, DU *sp, ARGS                /** word signature      */
+#define XT_REFS    VM &vm, IU *&ip, DU *&sp, REFS              /** helper by reference */
 #define XT_PASS    vm, ip, sp, PASS                            /** forward as-is       */
-
-#if E4_NOS
-#define XT_REFS    VM &vm, DU *&sp, DU &tos, DU &nos           /** helper by reference */
-#define XT_RPAS    vm, sp, tos, nos
-#else  // E4_NOS
-#define XT_REFS    VM &vm, DU *&sp, DU &tos
-#define XT_RPAS    vm, sp, tos
-#endif // E4_NOS
 
 struct Code {
 #if XT0_U32
@@ -259,14 +257,14 @@ extern       List<U8,    0>          pmem;
 // =====================================================================
 #if XT0_U32
 #define NEXT_FP  ((FPTR)(UFP)(*ip++))
-#else
+#else  // XT0_U32
 #define NEXT_FP  ((FPTR)(Code::XT0 | (UFP)*ip++))
-#endif
+#endif // XT0_U32
 #if E4_TRAMP
-#define NEXT()   ({ FPTR fp = NEXT_FP; return Ret{ fp, ip, sp, tos }; })  /** back to trampoline */
-#else
-#define NEXT()   ({ FPTR fp = NEXT_FP; return fp(XT_PASS); })             /** true tail call */
-#endif
+#define NEXT()   ({ return Ret{ ip, sp, PASS }; })             /** back to trampoline */
+#else  // E4_TRAMP
+#define NEXT()   ({ FPTR fp = NEXT_FP; return fp(XT_PASS); })  /** true tail call */
+#endif // E4_TRAMP
 
 #define CODE(n, g)                                              \
     rom_code(n, [](XT_ARGS)                                     \
