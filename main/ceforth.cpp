@@ -285,27 +285,19 @@ static IU gStop[] = { TOK(doSTOP) };  ///< tempoline sentinal
         NEXT();                                                \
     }
 
-#if E4_TRAMP
-static void run(VM &vm, Ret r) {      ///< trampoline: constant C stack, one call+return per word
-    IU *ip;
-    while ((ip = r.ip)) {
-        FPTR fp  = NEXT_FP;
-#if E4_RTOP    
-        r  = fp(vm, r.ip, r.sp, r.tos, r.rp);
-#else  // E4_RTOP        
-        r  = fp(vm, r.ip, r.sp, r.tos);
-#endif // E4_RTOP        
-    }
-    IP  = 0;
-    SP  = r.sp - SS;
-    r.sp[-1] = r.tos;
-#if E4_RTOP
-    RP  = r.rp - RS;
-#endif // E4_RTOP
+#if (E4_TRAMP && E4_RTOP && XT0_U32)
+extern "C" void e4_run(IU *ip, DU *sp, DU tos, DU *rp, VM &vm, Ret *out);
+static void run(XT_ARGS) {
+    Ret o;
+    e4_run(ip, sp, tos, rp, vm, &o);
+    IP = 0;
+    SP = o.sp - SS;
+    o.sp[-1] = o.tos;
+    RP = o.rp - RS;
 }
-#endif // E4_TRAMP
+#endif // (E4_TRAMP && E4_RTOP && XT0_U32)
 
-void nest(VM& vm) {                   ///< inner-interpreter i.e. doLIST
+void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
     vm.state = NEST;
 
     IU *ip  = IP;                    /// Extract VM state into registers
@@ -322,7 +314,8 @@ void nest(VM& vm) {                   ///< inner-interpreter i.e. doLIST
 
     FPTR fp = NEXT_FP;
 #if E4_TRAMP
-    run(vm, fp(XT_PASS));
+    Ret r = fp(XT_PASS);
+    run(r.ip, r.sp, r.tos, r.rp, vm);
 #else  // E4_TRAMP
     fp(XT_PASS);                    /// * the whole word chain runs by tail calls; doSTOP returns
 #endif // E4_TRAMP
@@ -345,7 +338,8 @@ void CALL(VM &vm, const Code &c) {
         DU *rp  = RS + RP;
 #endif // E4_RTOP
 #if E4_TRAMP
-        run(vm, c.xt(XT_PASS));
+        Ret r = c.xt(XT_PASS);
+        run(r.ip, r.sp, r.tos, r.rp, vm);
 #else  // E4_TRAMP
         c.xt(XT_PASS);
 #endif // E4_TRAMP
