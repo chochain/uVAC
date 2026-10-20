@@ -6,6 +6,7 @@ set(SOURCES
     "ceforth.cpp"
     "ceforth_sys.cpp"
     "ceforth_task.cpp"
+    "e4_run.S"
 )
 set(SOURCES1
     "main.cpp"
@@ -22,16 +23,22 @@ idf_component_register(
     SRCS ${SOURCES}
     INCLUDE_DIRS "." "esp32"
     REQUIRES lwip nvs_flash esp_http_server  # Add required hardware/network components here
-)
+    )
 
 # 3. Port custom compiler flags from your original Makefile
 # NOTE: ESP-IDF automatically handles cross-compiling architectures, -std=gnu++17, and standard optimizations.
 # We append your specialized performance flags below.
 target_compile_options(${COMPONENT_LIB} PRIVATE
   -O2
+  -DXT0_U32=1
+  -DE4_TRAMP=1
+  -DE4_RTOP=1
   -fomit-frame-pointer
   -fno-stack-check
   -fno-stack-protector
   -ffast-math
   -funroll-loops
-)
+  )
+
+set_source_files_properties(ceforth.cpp PROPERTIES COMPILE_OPTIONS "-O2;-fdump-tree-optimized")
+
