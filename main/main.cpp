@@ -5,12 +5,12 @@
 #include <iostream>      // cin, cout
 #include <fstream>       // ifstream
 #include <cstdint>
-#include <sys/sysinfo.h>
+//#include <sys/sysinfo.h>
 
 using namespace std;
 
 extern void forth_init();
-extern int  forth_vm(const char *cmd, void(*)(int, const char*)=NULL);
+extern int  forth_vm(const char *cmd, void(*)(int, const char*)=nullptr);
 extern void forth_teardown();
 
 const char* APP_VERSION = "xeForth v1.0";
@@ -22,11 +22,11 @@ const char* APP_VERSION = "xeForth v1.0";
 typedef uint64_t U64;
 void mem_stat() {
     cout << APP_VERSION;
-
+#if 0
 #if (ARDUINO || ESP32)
     int64_t memsize;
     size_t len = sizeof(memsize);
-    if (sysctlbyname("hw.memsize", &memsize, &len, NULL, 0) == 0) {
+    if (sysctlbyname("hw.memsize", &memsize, &len, nullptr, 0) == 0) {
       cout << ", RAM " << (memsize >> 20) << " MB";
     }
 #else // !(ARDUINO || ESP32) i.e. Linux
@@ -39,6 +39,7 @@ void mem_stat() {
            << " / " << (t >> 20) << " MB)";
     }
 #endif // (ARDUINO || ESP32)
+#endif
 
     cout << endl;
 }
@@ -62,6 +63,17 @@ void forth_include(const char *fn) {
     ifile.close();
 }
 
+extern "C" void app_main(void) {
+    forth_init();                             ///> initialize dictionary
+    
+    mem_stat();                               ///> show memory status
+    srand((int)time(0));                      ///> seed random generator
+    outer(cin);                               ///> Forth outer interpreter
+    
+    forth_teardown();                         ///> clean up before we go
+    cout << APP_VERSION << " Done!" << endl;
+}
+
 #if (ARDUINO || ESP32)
 ///====================================================================
 #include "esp32/xque.h"
@@ -69,7 +81,7 @@ void forth_include(const char *fn) {
 #include "esp32/xgl_actor.h"
 #include <iostream>
 
-int main1(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
     std::cout << "=== CONFIGURING LINUX DUAL-CORE THREAD PLUMBING PIPELINES ===" << std::endl;
 
     /* 1. Allocate the communication queues safely on the host system memory map */
