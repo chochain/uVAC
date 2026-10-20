@@ -203,13 +203,13 @@ struct  Ret        { IU *ip; DU *sp; DU tos; };
 #endif // E4_RTOP
 #define XT_RET     Ret
 #else // E4_TRAMP
-#define XT_RET     void *
+#define XT_RET     void*
 #endif // E4_TRAMP
-typedef XT_RET     (*FPTR)(VM &vm, IU *ip, DU *sp, ARGS);      ///< trampoline or tail-call (returns NEXT)
 
-#define XT_ARGS    VM &vm, IU *ip, DU *sp, ARGS                /** word signature      */
-#define XT_REFS    VM &vm, IU *&ip, DU *&sp, REFS              /** helper by reference */
-#define XT_PASS    vm, ip, sp, PASS                            /** forward as-is       */
+typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm);      ///< trampoline (struct Ret)
+#define XT_ARGS    IU *ip, DU *sp, ARGS, VM &vm                /** word signature      */
+#define XT_REFS    IU *&ip, DU *&sp, REFS, VM &vm              /** helper by reference */
+#define XT_PASS    ip, sp, PASS, vm                            /** forward as-is       */
 
 struct Code {
 #if XT0_U32
