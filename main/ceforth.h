@@ -205,8 +205,7 @@ struct  Ret        { IU *ip; DU *sp; DU tos; };
 #else // E4_TRAMP
 #define XT_RET     void*
 #endif // E4_TRAMP
-
-typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm);      ///< trampoline (struct Ret)
+typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm);      ///< trampoline or tail-call (returns NEXT)
 #define XT_ARGS    IU *ip, DU *sp, ARGS, VM &vm                /** word signature      */
 #define XT_REFS    IU *&ip, DU *&sp, REFS, VM &vm              /** helper by reference */
 #define XT_PASS    ip, sp, PASS, vm                            /** forward as-is       */
