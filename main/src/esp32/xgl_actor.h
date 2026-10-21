@@ -1,0 +1,124 @@
+///
+/// @file
+/// @brief ESP32-S3 4848S040 LVGL renderer interface
+///
+#ifndef _XGL_ACTOR_H
+#define _XGL_ACTOR_H
+
+#if (ARDUINO || ESP32)
+#include <Arduino.h>
+#include <Arduino_GFX_Library.h> // Include your standard GFX header
+#include <TAMC_GT911.h>
+#include <Wire.h>
+#include <lvgl.h>
+#include "xactor.h"
+
+#define SCREEN_WIDTH  480
+#define SCREEN_HEIGHT 480
+
+#define TOUCH_SDA  19
+#define TOUCH_SCL  45  
+#define TOUCH_INT  4     // B0, might blip on start up
+#define TOUCH_RST  5     // B1
+
+class XGL : public BaseActor {
+private:
+    uint32_t              _width;
+    uint32_t              _height;
+    TaskHandle_t          _task;
+    QueueHandle_t         _mailbox; // Fast, lock-free localized queue for Core 1 delivery
+    
+    // 📺 Embedded Arduino_GFX Hardware Display Infrastructure Components
+    Arduino_DataBus       *_bus;
+    Arduino_ESP32RGBPanel *_panel;
+    Arduino_RGB_Display   *_display; // Standard class wrapping RGB panel logic
+    TAMC_GT911            *_ts;
+
+    // LVGL internal canvas properties
+    lv_disp_draw_buf_t    _draw_buf;
+    lv_color_t            *_disp_draw_buf;
+    lv_obj_t              *_term_log;
+    lv_obj_t              *_chart;
+    lv_chart_series_t     *_cpu_series;
+    lv_chart_series_t     *_ram_series;
+
+    void run();
+    
+    // Internal hardware initialization method
+    void init_hardware();
+    void process_mailbox();
+    void update_chart();
+    void parse(char *cmd);
+    void term_print(const char *txt, lv_color_t textColor);
+
+public:
+    XGL(uint32_t actor_id, uint32_t width = SCREEN_WIDTH, uint32_t height = SCREEN_HEIGHT) :
+        BaseActor(actor_id),
+        _width(width),
+        _height(height),
+        _task(NULL),
+        _mailbox(NULL),
+        _bus(NULL),
+        _panel(NULL),
+        _display(NULL),
+        _ts(NULL),
+        _disp_draw_buf(NULL),
+        _term_log(NULL),
+        _chart(NULL),
+        _cpu_series(NULL),
+        _ram_series(NULL) {
+        _mailbox = xQueueCreate(20, sizeof(ActorMsg));
+    }
+
+    void receive(const ActorMsg &msg) override;
+    bool begin(int priority);
+};
+
+#else // !(ARDUINO || ESP32)
+#include <thread>
+#include <iostream>
+
+class MockUI {
+private:
+    std::thread *_thread;
+    xQueUI      *_ui;
+
+    void run(void) {
+        std::cout << "core1> UI engine active..." << std::endl;
+        msg_gui_t msg;
+
+        while (true) {
+            /* Drain all outstanding vector transformations generated from Core 0 */
+            while (_ui->get_req(msg)) {
+                if (msg.op_code == VECTOR_LINE) {
+                    /* This is where your Linux SDL2/SDL3 canvas plotting routine inserts */
+                    std::cout << "🎨 core1 UI>: render ("
+                              << msg.x1 << "," << msg.y1 << ") to ("
+                              << msg.x2 << "," << msg.y2 << ")" << std::endl;
+                }
+            }
+
+            /* Emulate: lv_timer_handler() execution steps */
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); /* Lock loop target at ~60fps */
+        }
+    }
+
+public:
+    MockUI(void) : _thread(NULL), _ui(NULL) {}
+    
+    ~MockUI() {
+        if (_thread) { delete _thread; }
+    }
+
+    bool begin(xQueUI *ui, int priority) {
+        _ui = ui;
+        _thread = new std::thread(&MockUI::run, this);
+        _thread->detach();
+
+        return true;
+    }
+};
+
+#endif // (ARDUINO || ESP32)
+#endif // _XGL_ACTOR_H
+
