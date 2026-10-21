@@ -1,184 +1,111 @@
-# xeForth - experimental eForth
+# uVAC: UNIVAC 1108 Retro on ESP32-S3
 
-## For MPU, with dynamically managed scripting
+A dual-core, hardware-accelerated **UNIVAC 1108 architecture simulator and educational platform** built for the **ESP32-S3** (specifically targeting the 4848S040 ST7701S smart display board). 
 
-A modern, high-performance, tokenized virtual machine (VM) designed to bridge the gap between low-level interactive execution and high-level scripting capabilities. Built entirely in pure C, this project targets Microprocessing Units (MPUs) and high-performance Crossover Processors, such as ESP32 and Raspberry Pi Pico, replacing Forth's traditional monolithic heap with a deterministic, real-time dynamic memory manager. Where MicroPython is a shrink-down version of Python, xeForth is a grown-up Forth.
-
-## 🚀 Architectural Vision
-
-Traditional Forths rely on a contiguous, linear dictionary and manual memory layout, making them brilliant for bare-metal microcontrollers but highly rigid for modern scripting workloads (like dynamic string manipulation, runtime module loading, and clean crash recoveries). 
-
-This project re-engineers the Forth environment from the ground up:
-1. **Dynamic Memory Isolation:** Utilizes a Two-Level Segregated Fit (TLSF) allocator to manage dictionary nodes and strings in constant $O(1)$ time with predictable fragmentation.
-2. **MPU & Crossover Tier Targeting:** Optimized for high-frequency MPUs running RTOS or real-time OS layers, leveraging multi-megabyte memory spaces without inheriting full OS bloat.
-3. **True Scripting Ergonomics:** Introduces automatic scope-based and reference-counted string management, allowing memory-safe text processing without sacrificing Forth's rapid prototyping workflow.
+This project explores the architectural elegance of 1960s mainframe computing by mapping historical **EXEC 8 Operating System concepts** directly onto modern **FreeRTOS symmetric multiprocessing (SMP)**, an asynchronous **Actor model network**, and a interactive resident **Forth Core acting as the primary Operating System interface**.
 
 ---
 
-## 🛠 Core Features
+## 🏛️ The Mainframe Architecture Analogy
 
-### 1. Tokenized Bytecode Virtual Machine
-Unlike traditional direct-threaded Forths that jump to raw 32/64-bit pointers, this VM compiles source text into dense 8-bit or 16-bit virtual opcodes. 
-* **O(1) Token Table Lookup:** A central Token Table maps `Word ID -> Current Memory Address`. 
-* **Safe Memory Compaction:** If the dynamic allocator shifts memory blocks to optimize fragmentation, only the single index in the Token Table updates. Compiled bytecode strings remain untouched and unbroken.
-* **GCC Labels-as-Values:** The inner interpreter loop utilizes direct threading via `&&` function pointers for blazing-fast instruction dispatch, completely avoiding branch-prediction bottlenecks.
+In the 1960s, the **UNIVAC 1108** triumphed over slow external peripherals (such as punch card readers and magnetic tape drives) using **Symbiont routines**—specialized asynchronous spooling programs that isolated slow I/O operations from the central computational unit. 
 
-### 2. TLSF-Backed Dynamic Dictionary
-Words are no longer trapped in chronological order. Vocabulary elements are treated as discrete, self-contained heap blocks.
-* **Hot-Swapping Modules:** Unload, update, or `import` specific code modules on the fly at runtime. Freeing an old module drops its memory safely back to the TLSF pool without corrupting adjacent words.
-* **Bulletproof Error Recovery:** Interactive terminal crashes sweep the current localized allocation pool, completely cleaning up half-compiled anonymous loops or orphaned strings without needing a hard system reboot.
+**uVAC** models this exact hardware topology across the ESP32-S3's dual-core Xtensa processor, utilizing a **Forth core** as the resident OS supervisor:
 
-### 3. Managed String Engine
-Scripting is inherently text-heavy. This engine shifts Forth from character-and-length pairs `( c-addr u )` to single-cell **String Object Pointers (SOP)**.
-* **Deterministic Reference Counting:** String nodes carry a lightweight structural header tracking capacity, length, and references.
-* **Scope-Safe Execution:** High-level string manipulation words (`s+`, `s-split`, `s-replace`) transparently increment/decrement references. When a temporary string falls out of scope, it is freed *instantly* back to the heap, eliminating unpredictable Garbage Collection (GC) pauses.
+```
+                  ┌───────────────────────────────────────┐
+                  │          WEB INTERFACE (HTML5/HTMX)   │
+                  └───────────────────┬───────────────────┘
+                                      │ (Wi-Fi Payload)
+                                      ▼
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │ CORE 0: CENTRAL MAINFRAME ENGINE                                         │
+    │                                                                          │
+    │  ┌───────────────────────┐             ┌──────────────────────────────┐  │
+    │  │  XServer (Symbiont)   │ ──[Alloc]──>│ 8MB Octal PSRAM Memory Bank  │  │
+    │  └───────────────────────┘             └──────────────────────────────┘  │
+    │              │                                  │                        │
+    │              │ (Parsed Card Streams)            │ (Capsule Data)         │
+    │              ▼                                  ▼                        │
+    │  ┌────────────────────────────────────────────────────────────────────┐  │
+    │  │  ForthActor Engine (Main OS & Central Processing Unit / forth_vm)  │  │
+    │  └────────────────────────────────────────────────────────────────────┘  │
+    └──────────────────────────────────┬───────────────────────────────────────┘
+                                       │ (Async Inter-Core Mailbox Msg)
+                                       ▼
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │ CORE 1: INPUT/OUTPUT CONTROLLER (IOC)                                    │
+    │                                                                          │
+    │  ┌────────────────────────────────────────────────────────────────────┐  │
+    │  │  XGL Renderer Actor (LVGL v8 / High-Speed DMA / ST7701S RGB Panel) │  │
+    │  └────────────────────────────────────────────────────────────────────┘  │
+    │              │ (9MHz Bus Optimization)                                   │
+    │              ▼                                                           │
+    │  [480x480 Smart Display Console] <──[Hardware Touch Engine (GT911)]      │
+    └──────────────────────────────────┴───────────────────────────────────────┘
+```
+
+### Architectural Mappings:
+* **The Central Processor (CPU 0)**: Pinned to **Core 0**. Runs the central asynchronous `ActorSystem` worker thread-pool executing the low-level processing engine (`ForthActor`).
+* **The Main OS Interface (Forth Core)**: Integrated directly as the underlying execution machine (`forth_vm`). Forth words map low-level hardware configurations (`mcu_actor.h`), state control loops, and dictionary operations, serving as the shell, macro interpreter, and direct supervisor of the mainframe state.
+* **Input/Output Controller (IOC)**: Pinned strictly to **Core 1**. Running at a higher FreeRTOS priority, it handles the **ST7701S Parallel RGB line timing** and **GT911 touch telemetry** via the LVGL graphics stack. This prevents screen refreshing overhead from introducing latency into core calculations or Forth word execution.
+* **EXEC 8 Symbionts**: The `XServer` asynchronous routing engine acts exactly like an 1108 input symbiont. It ingests raw HTTP plain-text network scripts from a custom HTMX web frontend, stream-buffers them straight into **8MB of external Octal PSRAM capsules**, and spools them line-by-line out of the core processor's critical path into the Forth OS environment.
 
 ---
 
-## 📦 System Architecture
+## ⚡ EXEC VIII Workload Scheduling Modes
 
-This is an evolution and experimental work trying to modernize eForth. It is spun off from [eForth](https://github.com/chochain/eforth) and is very much a work in progress.
+uVAC simulates the three historical runtime priorities managed by the classic UNIVAC EXEC VIII kernel using a customized `job_class_t` matrix directed through the Forth OS:
 
-Though Forth's VOCABULARY provides much greater flexibility than the scoping/namespace of other languages, to harness the power, it requires to understand an extra set of manipulation words. With background from imperative language (i.e. C/C++, Java, ...) and possibly hindered by the lack of the said words in Dr. Ting's eForth, it took me a few years to even get to them not to mention to gel my mental picture of it. See Bill Ragsdale's SVFIG [video](https://www.youtube.com/watch?v=wjppiefvc_U).
+1. **`JOB_BATCH` (Background Processing)**: Submit-and-collect workloads. Code blocks are spooled quietly into background PSRAM queues without holding open interactive communication pipelines.
+2. **`JOB_DEMAND` (Time-Sharing Interface)**: Low-latency interactive tasks. This drives the real-time web terminal console interface, giving developers a direct interactive REPL loop into the resident Forth OS.
+3. **`JOB_REALTIME` (Preemptive Interruption)**: High-priority execution tokens. Utilizing the custom actor pipeline's `send_priority()` methods, these jobs bypass the normal FIFO dispatch queues to cut straight to the front of the processing stream.
 
-Hinted by Sean Pringle's [Rethinking Forth](https://github.com/seanpringle/reforth) and Travis Bemann's wonderful [zeptoforth](https://github.com/tabemann/zeptoforth), I twist my own arm to bring the new scoping constructs into the eForth I've done. Just to feel and to learn!
+---
 
-My own guide-line is not to pollute Forth language's simplicity and elegance nor deviate too far away from the common idiomatic usage. We'll see.
+## 📁 Codebase Directory Structure
 
-## Nested Module (or sub-words)
-### master - vector implementation
 ```
-struct Code {
-    ...
-    FV<Code*> vt;           /* each word has an extra lookup table */
-    ...
-
-Code      root("forth");    /* global word-list aka FORTH    */
-FV<Code*> VS                /* vocabulary stack aka ROOT     */
-FV<Code*> dict = &root.vt;  /* current namespace aka CONTEXT */
-Code      *last;            /* last word cached, aka CURRENT */ 
-
-Code Example
-    : X ... ;           \ define X
-    : Y                 \ define Y
-        : a ... ;          \ nested word a
-        : b ... ;          \ nested word b
-        a b X ... ;     \ Y's code which calls a b and outer X
-    ^ Y # a             \ call Y::a
-    Y:a                 \ or in short (Forther might not like this)
+├── uVAC.ino                   # Main entry point; boots Actor System & subsystems
+├── src/
+│   ├── xactor.h/cpp           # Central Actor System framework & worker dispatch engines
+│   ├── xserver2.h/cpp         # esp_http_server implementation & PSRAM buffering
+│   ├── xserver_actor.h        # Chunked HTTP streaming sessions driven by Actors
+│   ├── xgl_actor.h/cpp        # LVGL framework initialization & parallel RGB panel configs
+│   ├── xforth_actor.h         # Wrapper executing the primary Forth OS VM & routing logs
+│   ├── xforth.h/cpp           # Native Forth core interpreter proxy interface
+│   ├── xque.h                 # Native FreeRTOS vs. Desktop STL fallback Mailbox queues
+│   ├── xbridge.h              # Shared mainframe workload typedefs & wire structures
+│   └── esp32/
+│       └── mcu_actor.h/cpp    # MCU-specific target words exposed to the Forth OS
 ```
 
-### 50x - linear memory
-```
-    +------+-----+-----+------+----------+-----------------+
-    | LINK | PFA | NSA | LAST | name-str | code/parameters |
-    +------+-----+-----+------+----------+-----------------+
+---
 
-     0          0          0    <= NSA (namespace address)
-      \          \          \
-    <--[ W1 ] <-- [ W2 ] <-- [ W3 ] <-- LAST (word linked-list)
-             \          \          \
-              \         NSA         [ A ] <-- [ B ] <-- [ C ] <-- W3.LAST
-              NSA         \
-                \          [ A ] <-- [ B ] <-- [ X ] <-- W2.LAST
-                 \
-                  [ A ] <-- [ B ] <-- W1.LAST
-                                 \
-                                  [ A ] <-- [ X ] <-- [ Y ] <-- W1B.LAST
-```
+## 🚀 Performance Optimizations for ESP32-S3
 
-## Smart Compilation
-Anton Ertl said ["state-smartness is evil"](http://www.euroforth.org/ef98/ertl98.pdf). But, just for a kick for now, let's live through it to see what's the good and bad of it.
+* **PSRAM Bus Bandwidth Throttling**: The parallel RGB panel driver is explicitly configured with a **9MHz pixel clock reduction** (down from 18MHz). This optimization clears up memory bus contention, giving Core 0 high-speed access to the external Octal SPI RAM capsules for seamless Forth execution.
+* **Zero-Wait Interrupt Handling**: In-flight timeouts or runtime cancellation signals (`MSG_FORTH_ABORT`) bypass processing queues entirely via zero-wait non-blocking priority mechanisms, mimicking hardware line interrupts to force an immediate Forth VM reset.
+* **Network-to-Display Bypass**: Output logs stream instantly across a dedicated Inter-Core Actor connection straight from Core 0 to the XGL Display Actor on Core 1 (`MSG_GUI_DRAW_CMD`), bypassing intermediate network buffers so your screen echoes Forth evaluations in real-time.
 
-### Available since eForth v4
-```
-    s" hello" type                  \ this was in eForth already since v4
-    ." hello"                       \ behaves the same as .( hello)
+---
+
+## 🛠️ Quick Start & Usage
+
+### Control Card Scripting Syntax
+You can control the mainframe engine routing manually from the web terminal using control cards that wrap standard Forth words:
+
+```forth
+\ 1. Submit a Real-time Preemptive Execution Job
+@REALTIME
+: ALARM-LOOP 5 0 DO ." [IRQ OVERRIDE] " CR LOOP ; ALARM-LOOP
+
+\ 2. Submit a Long-running Background Compute Task
+@BATCH
+: CALC-MATRIX 10000 0 DO I . LOOP ; CALC-MATRIX
 ```
 
-### dynamic scoping
-```
-    : xx 2 for i . next ;
-
-    1 if xx else ." help!" then
-    => 2 1 0 ok
-    
-    3 for xx next                   \ eForthX can behave like a scripting language
-    => 2 1 0 2 1 0 2 1 0 2 1 0 ok   \ without using :noname
-```
-
-## Simplified Control Structures
-### conditional branch
-```
-    0= if ... end
-    3 > if ... else ... end
-```
-
-### loops
-```
-    3 for ... end
-    10 0 do ... end
-```
-
-### block
-```
-    begin
-    ...
-    3 = while ... leave
-    4 = while ... leave
-    0 = until ... leave
-    ...
-    repeat
-```   
-
-## Local variables/constants
-```
-    : xx
-      variable x
-      : x++ 1 x +! ;
-      x++ x++ x @ . ;
-    : yy
-      [ 123 ] constant y
-      3 y + ;
-```
-
-## Record
-    TODO
-   
-## eForthX Internals
-    TODO
-   
-## Source Code Directories
-
-    + ~/src       - multi-threaded, dynamic vector-based, object threading
-    + ~/platform  - platform specific code for C++, ESP32, Windows, and WASM
-
-## References
-
-* ESP32-S3 4848S040 [ref](https://homeding.github.io/boards/esp32s3/panel-4848S040.htm)
-
-## Revision History
-
-* CC: 20260820: ESP32-S3 specific implementation
-      + Core0 - WiFi/BT + Forth VM
-      + Core1 - LVGL
-      + exchange with FreeRTOS queues
-      + callback with id->xt map
-* CC: 20250806: branch off from [eForth](https://github.com/chochain/eforth)
-    + Refactor
-    ```
-        - add Code::vt (virtual table for nested node)
-        - add Code::desc
-        - move see to _sys (implementation)
-        - change to FV<Code*> dict (12% faster than FV<Code>)
-        - add FV<Code*> nspace (namespace stack in compilation)
-        - update find to walk nspace outward
-        - IMMD for all words with Code(word()), cannot break out from input stream
-        - add FLUSH macro, along with ENDL (ok prompt is now inline)
-        - add _else, _while, _end, _then, _next, _noname Branching primitives
-        - add _enscope/_descope pair for scoping control
-        - add VM::i (third stack) for loop counts and locals (future)
-        - rename _tor,_tor2 => _toi, _toi2
-        - drop Bran::p1,p2, by scoping envelopes now
-        - use BASE_NODE instead of hardcoded [0]
-    ```
+### Compilation Requirements
+1. **Hardware**: ESP32-S3 4848S040 Board (4.0" 480x480 Smart Display with Octal PSRAM).
+2. **Libraries**: `Arduino_GFX_Library`, `TAMC_GT911`, `lvgl` (v8.x recommended).
+3. **Configuration**: Set your target router credentials inside `uVAC.ino` before launching the compilation chain.
