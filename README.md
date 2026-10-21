@@ -77,8 +77,7 @@ uVAC simulates the three historical runtime priorities managed by the classic UN
 │       ├── xactor.h/cpp       # Central Actor System framework & worker dispatch engines
 │       ├── xque.h             # Native FreeRTOS vs. Desktop STL fallback Mailbox queues
 │       ├── xbridge.h          # Shared mainframe workload typedefs & wire structures
-│       ├── xserver_actor.h    # Chunked HTTP streaming sessions driven by Actors
-│       ├── xserver_mux.h      # Chunked HTTP streaming sessions handshake multiplexer
+│       ├── xserver_mux.h      # Chunked HTTP Actor (streaming sessions handshake multiplexer)
 │       ├── xserver2.h/cpp     # esp_http_server implementation & PSRAM buffering
 │       ├── xforth_actor.h     # Wrapper executing the primary Forth OS VM & routing logs
 │       └── xgl_actor.h/cpp    # LVGL framework initialization & parallel RGB panel configs

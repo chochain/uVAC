@@ -230,4 +230,4 @@ public:
     }
 };
 
-#endif // _XSERVER_COORDINATOR_H
+#endif // _XSERVER_MUX_H
