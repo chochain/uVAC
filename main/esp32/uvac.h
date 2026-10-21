@@ -1,5 +1,5 @@
-#ifndef _MCU_ACTOR_H
-#define _MCU_ACTOR_H
+#ifndef _UVAC_H
+#define _UVAC_H
 ///
 /// @file
 /// @brief eForth implemented for ESP32
@@ -13,7 +13,7 @@
 ///     665ms src/ceforth vector-based, object-threaded
 ///     534ms src/ceforth, multi-threading, vector-based, object-threaded (with gcc -O3)
 ///
-const char *APP_VERSION = "xeForth v1.0";
+const char *APP_VERSION = "uVAC v1.0";
 ///
 ///> interface to core module
 ///
@@ -109,5 +109,5 @@ void mcu_init() {
 
     mem_stat();
 }
-#endif // _MCU_ACTOR_H
+#endif // _UVAC_H
 
