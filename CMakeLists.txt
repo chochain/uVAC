@@ -16,7 +16,7 @@ if(NOT "${IDF_TARGET}" STREQUAL "esp32s3")
     message(FATAL_ERROR "This repository is hardware-specific and only supports compilation for ESP32-S3!")
 endif()
 
-project(xeforth)
+project(uvac)
 
 # `cmake -B build`                             create ~/build directory
 # `cmake --build build --target clean`      == old `make clean` (whole-project

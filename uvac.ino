@@ -1,6 +1,6 @@
 /// -*- mode: c++ -*-
 /// @file
-/// @brief xeForth implemented for ESP32
+/// @brief uVAC - UNIVAC 1108 retro on ESP32
 ///
 ///====================================================================
 #include "soc/soc.h"                      /// * for brown out detector
@@ -45,7 +45,7 @@ void setup() {
     
     // 1. Boot up the central conveyor thread pool system on Core 0 at priority 5
     Sys.begin(WORKER_TASK_COUNT, 5);
-    Serial.printf("\n[SYSTEM] xeForth Actor Engine Initializing...\n");
+    Serial.printf("\n[SYSTEM] Forth Actor Engine Initializing...\n");
 
     // 2. Register the Core 0 Forth Actor
     Sys.register_actor(&gForthActor);
