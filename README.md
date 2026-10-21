@@ -46,16 +46,16 @@ In the 1960s, the **UNIVAC 1108** triumphed over slow external peripherals (such
 ```
 
 ### Architectural Mappings:
+* **EXEC 8 Symbionts**: The `XServer` asynchronous routing engine acts exactly like an 1108 input symbiont. It ingests raw HTTP plain-text network scripts from a custom HTMX web frontend, stream-buffers them straight into **8MB of external Octal PSRAM capsules**, and spools them line-by-line out of the core processor's critical path into the Forth OS environment.
 * **The Central Processor (CPU 0)**: Pinned to **Core 0**. Runs the central asynchronous `ActorSystem` worker thread-pool executing the low-level processing engine (`ForthActor`).
 * **The Main OS Interface (Forth Core)**: Integrated directly as the underlying execution machine (`forth_vm`). Forth words map low-level hardware configurations (`mcu_actor.h`), state control loops, and dictionary operations, serving as the shell, macro interpreter, and direct supervisor of the mainframe state.
 * **Input/Output Controller (IOC)**: Pinned strictly to **Core 1**. Running at a higher FreeRTOS priority, it handles the **ST7701S Parallel RGB line timing** and **GT911 touch telemetry** via the LVGL graphics stack. This prevents screen refreshing overhead from introducing latency into core calculations or Forth word execution.
-* **EXEC 8 Symbionts**: The `XServer` asynchronous routing engine acts exactly like an 1108 input symbiont. It ingests raw HTTP plain-text network scripts from a custom HTMX web frontend, stream-buffers them straight into **8MB of external Octal PSRAM capsules**, and spools them line-by-line out of the core processor's critical path into the Forth OS environment.
 
 ---
 
-## ⚡ EXEC VIII Workload Scheduling Modes
+## ⚡ EXEC 8 Workload Scheduling Modes
 
-uVAC simulates the three historical runtime priorities managed by the classic UNIVAC EXEC VIII kernel using a customized `job_class_t` matrix directed through the Forth OS:
+uVAC simulates the three historical runtime priorities managed by the classic UNIVAC EXEC 8 kernel using a customized `job_class_t` matrix directed through the Forth OS:
 
 1. **`JOB_BATCH` (Background Processing)**: Submit-and-collect workloads. Code blocks are spooled quietly into background PSRAM queues without holding open interactive communication pipelines.
 2. **`JOB_DEMAND` (Time-Sharing Interface)**: Low-latency interactive tasks. This drives the real-time web terminal console interface, giving developers a direct interactive REPL loop into the resident Forth OS.
@@ -67,17 +67,21 @@ uVAC simulates the three historical runtime priorities managed by the classic UN
 
 ```
 ├── uVAC.ino                   # Main entry point; boots Actor System & subsystems
-├── src/
-│   ├── xactor.h/cpp           # Central Actor System framework & worker dispatch engines
-│   ├── xserver2.h/cpp         # esp_http_server implementation & PSRAM buffering
-│   ├── xserver_actor.h        # Chunked HTTP streaming sessions driven by Actors
-│   ├── xgl_actor.h/cpp        # LVGL framework initialization & parallel RGB panel configs
-│   ├── xforth_actor.h         # Wrapper executing the primary Forth OS VM & routing logs
-│   ├── xforth.h/cpp           # Native Forth core interpreter proxy interface
-│   ├── xque.h                 # Native FreeRTOS vs. Desktop STL fallback Mailbox queues
-│   ├── xbridge.h              # Shared mainframe workload typedefs & wire structures
+├── main/
+│   ├── config.h               # eForth build configuration
+│   ├── ceforth.h/cpp          # eForth core
+│   ├── ceforth_sys.cpp        # eForth IO subsystem
+│   ├── ceforth_task.cpp       # eForth multi-tasking subsystem
 │   └── esp32/
-│       └── mcu_actor.h/cpp    # MCU-specific target words exposed to the Forth OS
+│       ├── xactor.h/cpp       # Central Actor System framework & worker dispatch engines
+│       ├── xque.h             # Native FreeRTOS vs. Desktop STL fallback Mailbox queues
+│       ├── xbridge.h          # Shared mainframe workload typedefs & wire structures
+│       ├── mcu_actor.h/cpp    # MCU-specific target words exposed to the Forth OS
+│       ├── xserver_actor.h    # Chunked HTTP streaming sessions driven by Actors
+│       ├── xserver2.h/cpp     # esp_http_server implementation & PSRAM buffering
+│       ├── xgl_actor.h/cpp    # LVGL framework initialization & parallel RGB panel configs
+│       ├── xforth_actor.h     # Wrapper executing the primary Forth OS VM & routing logs
+│       └── xforth.h/cpp
 ```
 
 ---
