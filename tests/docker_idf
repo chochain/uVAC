@@ -3,6 +3,7 @@ xhost +
 docker run -it --rm --user $(id -u):$(id -g) \
        --cap-add=SYS_ADMIN --security-opt seccomp=unconfined \
        --network host --cap-add=SYS_ADMIN --security-opt seccomp=unconfined \
+       --privileged -v /dev:/dev --group-add dialout \
        -e DOCKER_NAME=idf \
        -e DISPLAY=$DISPLAY -e TERM=ansi-term \
        -e XDG_RUNTIME_DIR="/tmp/$(id -u)" \
