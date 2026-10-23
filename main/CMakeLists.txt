@@ -2,26 +2,25 @@
 
 # 1. Define your source paths relative to this component directory
 set(SOURCES
-    "src/main.cpp"
+    "src/main_repl.cpp"
     "src/ceforth.cpp"
     "src/ceforth_sys.cpp"
     "src/ceforth_task.cpp"
     "src/e4_run.S"
 )
 set(SOURCES1
-    "main.cpp"
-    "ceforth.cpp"
-    "ceforth_sys.cpp"
-    "ceforth_task.cpp"
-    "esp32/xserver2.cpp"
-    "esp32/xforth.cpp"
-    "esp32/xgl_actor.cpp"
+    "src/esp32/xserver2.cpp"
+    "src/esp32/xforth.cpp"
+    "src/esp32/xgl_actor.cpp"
 )
 
 # 2. Register the component with ESP-IDF
 idf_component_register(
     SRCS ${SOURCES}
-    INCLUDE_DIRS "." "src" "src/esp32"
+    INCLUDE_DIRS
+    "."
+    "src"
+    "src/esp32"
     REQUIRES lwip nvs_flash esp_http_server  # Add required hardware/network components here
     )
 
