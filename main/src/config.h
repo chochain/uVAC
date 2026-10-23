@@ -142,14 +142,19 @@ typedef int32_t         DU;
 ///@name Multi-platform support
 ///@{
 #if (ARDUINO || ESP32)
-    #include <Arduino.h>
-    #include "esp_task_wdt.h"
-    #define DALIGN(sz)      (sz)
-    #define to_string(i)    string(String(i).c_str())
     #define yield()         vTaskDelay(1)
-    #if    ESP32
+    #define DALIGN(sz)      (sz)
+    #if ARDUINO
+        #include <Arduino.h>
         #define analogWrite(c,v,mx) ledcWrite((c),(8191/mx)*min((int)(v),mx))
-    #endif // ESP32
+        #define to_string(i)    string(String(i).c_str())
+    #else  // ARDUINO
+        #include <esp_task_wdt.h>
+        #include <esp_timer.h>
+        #define  PROGMEM
+        #define  millis()   ((U32)(esp_timer_get_time() / 1000LL))
+        #define  delay(ms)  vTaskDelay(pdMS_TO_TICKS(ms))
+    #endif // ARDUINO
 
 #else  // !(ARDUINO || ESP32)
     #include <chrono>
@@ -165,7 +170,7 @@ typedef int32_t         DU;
 ///@}
 ///@name Logging support
 ///@{
-#if (ARDUINO || ESP32)
+#if ARDUINO
     #define LOG(fmt,...) Serial.print(fmt, __VA_ARGS__)
     #define ERR(...)     Serial.printf("[ERROR] %s\n", __VA_ARGS__)
 #else  // !(ARDUINO || ESP32)
@@ -174,11 +179,11 @@ typedef int32_t         DU;
 #endif // (ARDUINO || ESP32)
 
 #if CC_DEBUG > 1
-#if (ARDUINO || ESP32)
+#if ARDUINO
     #define DEBUG(fmt,...) Serial.print(fmt, __VA_ARGS__)
-#else  // !(ARUINO || ESP32)
+#else  // !ARUINO
     #define DEBUG(fmt,...) printf(fmt, __VA_ARGS__)
-#endif // (ARDUINO || ESP32)
+#endif // ARDUINO
 #else  // CC_DEBUG > 1
 #define DEBUG(fmt,...)
 #endif // CC_DEBUG > 1
@@ -187,21 +192,21 @@ typedef int32_t         DU;
 #if CC_DEBUG
 #include <stdarg.h>
     
-#if (ARDUINO || ESP32)
+#if ARDUINO
 #define VM_HDR(vm, fmt, ...)                                \
     printf("[%02d.%d]%-4x" fmt,                             \
            (vm)->id, (vm)->state, (vm)->ip, ##__VA_ARGS__)
 #define VM_TLR(vm, fmt, ...)                                \
     printf(fmt, ##__VA_ARGS__)
     
-#else // !(ESP32 || ARDUINO)
+#else // !ARDUINO
 #define VM_HDR(vm, fmt, ...)                  \
     printf("\e[%dm[%02d.%d]%-4x" fmt "\e[0m", \
            ((vm)->id&7) ? 38-((vm)->id&7) : 37, (vm)->id, (vm)->state, (vm)->ip, ##__VA_ARGS__)
 #define VM_TLR(vm, fmt, ...)                  \
     printf("\e[%dm" fmt "\e[0m\n",            \
            ((vm)->id&7) ? 38-((vm)->id&7) : 37, ##__VA_ARGS__)
-#endif // (ESP32 || ARDUINO)
+#endif // ARDUINO
 #define VM_LOG(vm, fmt, ...)                  \
     VM_HDR(vm, fmt, ##__VA_ARGS__);           \
     printf("\n")
