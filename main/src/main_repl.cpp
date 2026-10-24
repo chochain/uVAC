@@ -1,6 +1,19 @@
 ///
 /// ESP-IDF: interactive Forth core as a FreeRTOS task over the console
 ///
+/// @file
+/// @brief eForth implemented for ESP32
+/// @note
+///    benchmark: 1K*1K test case
+///    1440ms Dr. Ting's orig/esp32forth_82
+///    1240ms ~/Download/forth/esp32/esp32forth8_exp9
+///    1045ms orig/esp32forth8_1
+///     999ms orig/40x/ceforth subroutine-threaded, 16-bit xt offset
+///     940ms orig/40x/ceforth use cached xt offsets in nest()
+///     665ms src/ceforth vector-based, object-threaded
+///     534ms src/ceforth, multi-threading, vector-based, object-threaded (with gcc -O3)
+///     364ms uvac: main/src/ceforth, 32-bit single-threaded, lambda-trampoline
+///
 #include <cstdio>
 #include <ctime>
 #include <string>
