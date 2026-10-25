@@ -22,6 +22,7 @@
 ///     404ms ref: ESP32forth 7.0.8
 ///     589ms uvac: main/src/ceforth, 32-bit single-threaded, lambda-trampoline
 ///
+#if !ARDUINO
 #include <cstdio>
 #include <ctime>
 #include <string>
@@ -104,3 +105,4 @@ extern "C" void app_main(void) {
     if (ok != pdPASS) printf("[ERROR] forth task create failed\n");
     // app_main returns; the main task is deleted and the system keeps running
 }
+#endif // !ARDUINO

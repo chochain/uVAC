@@ -2,6 +2,7 @@
 /// @file
 /// @brief eForth main program for testing on Desktop PC (Linux and Cygwin)
 ///
+#if !ARDUINO
 #include <iostream>      // cin, cout
 #include <fstream>       // ifstream
 #include <cstdint>
@@ -22,14 +23,13 @@ const char* APP_VERSION = "xeForth v1.0";
 typedef uint64_t U64;
 void mem_stat() {
     cout << APP_VERSION;
-#if 0
-#if (ARDUINO || ESP32)
+#if ESP32
     int64_t memsize;
     size_t len = sizeof(memsize);
     if (sysctlbyname("hw.memsize", &memsize, &len, nullptr, 0) == 0) {
       cout << ", RAM " << (memsize >> 20) << " MB";
     }
-#else // !(ARDUINO || ESP32) i.e. Linux
+#else // !ESP32 i.e. Linux
     struct sysinfo si;
     if (sysinfo(&si) != -1) {
       U64 f = (U64)si.freeram * si.mem_unit;
@@ -38,8 +38,7 @@ void mem_stat() {
       cout << ", RAM " << static_cast<float>(p) * 0.1 << "% free (" << (f >> 20)
            << " / " << (t >> 20) << " MB)";
     }
-#endif // (ARDUINO || ESP32)
-#endif
+#endif // ESP32
 
     cout << endl;
 }
@@ -74,7 +73,7 @@ extern "C" void app_main(void) {
     cout << APP_VERSION << " Done!" << endl;
 }
 
-#if (ARDUINO || ESP32)
+#if ESP32
 ///====================================================================
 #include "esp32/xque.h"
 #include "esp32/xforth_actor.h"
@@ -129,7 +128,7 @@ int main(int argc, char *argv[]) {
     }        
     return 0;
 }
-#else // (ARDUINO || ESP32)
+#else // !ESP32
 ///====================================================================
 ///
 /// main program - Note: Arduino and ESP32 have their own main-loop
@@ -145,4 +144,5 @@ int main(int ac, char* av[]) {
     cout << APP_VERSION << " Done!" << endl;
     return 0;
 }
-#endif // (ARDUINO || ESP32)
+#endif // ESP32
+#endif // !ARDUINO
