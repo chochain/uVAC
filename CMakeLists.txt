@@ -9,6 +9,9 @@ if(NOT DEFINED ENV{IDF_TARGET} AND NOT DEFINED IDF_TARGET)
 endif()
 
 # Include the core ESP-IDF build logic
+set(EXTRA_COMPONENT_DIRS "src")
+set(MAIN_COMPONENT_NAME src)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # Safety Guard: Throw a hard error if someone tries to switch away from esp32s3
