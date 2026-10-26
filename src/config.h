@@ -149,14 +149,13 @@ typedef int32_t         DU;
 #if (ARDUINO || ESP32)
     #if ARDUINO
         #include <Arduino.h>
-        #define analogWrite(c,v,mx) ledcWrite((c),(8191/mx)*min((int)(v),mx))
         #define to_string(i)    string(String(i).c_str())
     #else  // ARDUINO
         #include <esp_task_wdt.h>
         #include <esp_timer.h>
         #define  PROGMEM
-        #define  millis()   ((U32)(esp_timer_get_time() / 1000LL))
-        #define  delay(ms)  vTaskDelay(pdMS_TO_TICKS(ms))
+        #define  millis()       ((U32)(esp_timer_get_time() / 1000LL))
+        #define  delay(ms)      vTaskDelay(pdMS_TO_TICKS(ms))
     #endif // ARDUINO
 
 #else  // !(ARDUINO || ESP32)
