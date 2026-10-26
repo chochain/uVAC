@@ -137,6 +137,7 @@ typedef int32_t         DU;
 #define ALIGN16(sz)     ((sz) + (-(sz) & 0xf))
 #define ALIGN32(sz)     ((sz) + (-(sz) & 0x1f))
 #define ALIGN(sz)       ALIGN4(sz)
+#define DALIGN(sz)      (sz)
 // #define ALIGNAS         alignas(std::hardware_destructive_interference_size) C++17 but didn't work
 #define ALIGNAS         alignas(64)
 #define STRLEN(s)       (ALIGN(sizeof(U16)+strlen(s)+1))  /** calculate string size with alignment */
@@ -146,8 +147,6 @@ typedef int32_t         DU;
 ///@name Multi-platform support
 ///@{
 #if (ARDUINO || ESP32)
-    #define yield()         vTaskDelay(1)
-    #define DALIGN(sz)      (sz)
     #if ARDUINO
         #include <Arduino.h>
         #define analogWrite(c,v,mx) ledcWrite((c),(8191/mx)*min((int)(v),mx))
@@ -163,7 +162,6 @@ typedef int32_t         DU;
 #else  // !(ARDUINO || ESP32)
     #include <chrono>
     #include <thread>
-    #define DALIGN(sz)      (sz)
     #define millis()        chrono::duration_cast<chrono::milliseconds>( \
                             chrono::steady_clock::now().time_since_epoch()).count()
     #define delay(ms)       this_thread::sleep_for(chrono::milliseconds(ms))
