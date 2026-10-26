@@ -4,8 +4,7 @@
 /// @file
 /// @brief eForth implemented for ESP32
 /// @note
-///    benchmark: 1K*1K test case
-///    : xx 999 for 34 drop next ; : yy 999 for xx next ;
+///    benchmark1  : xx 999 for 34 drop next ; : yy 999 for xx next ;
 ///    1440ms Dr. Ting's orig/esp32forth_82
 ///    1240ms ~/Download/forth/esp32/esp32forth8_exp9
 ///    1045ms orig/esp32forth8_1
@@ -13,14 +12,15 @@
 ///     940ms orig/40x/ceforth use cached xt offsets in nest()
 ///     665ms src/ceforth vector-based, object-threaded
 ///     534ms src/ceforth, multi-threading, vector-based, object-threaded (with gcc -O3)
-///     364ms uvac: main/src/ceforth, 32-bit single-threaded, lambda-trampoline
-///     248ms ref: ESP32forth 7.0.8
+///     248ms ref: ESP32forth 7.0.8 (Arduino IDE, 240MHz)
+///     383ms uvac: 32-bit single-threaded, lambda-trampoline (ESP-IDF, 160MHz)
+///     232ms uvac: 32-bit single-threaded, lambda-trampoline (Arduino IDE, 240MHz)
 ///
-///    benchmark2
-///     : xx 999 for 34 i + drop next ; : yy 999 for xx next ;
+///    benchmark2  : xx 999 for 34 i + drop next ; : yy 999 for xx next ;
 ///     
-///     404ms ref: ESP32forth 7.0.8
-///     589ms uvac: main/src/ceforth, 32-bit single-threaded, lambda-trampoline
+///     404ms ref: ESP32forth 7.0.8 (Arduino IDE, 240MHz)
+///     589ms uvac: 32-bit single-threaded, lambda-trampoline (ESP-IDF, 160MHz)
+///     383ms uvac: 32-bit single-threaded, lambda-trampoline (Arduino IDE, 240MHz)
 ///
 #if !ARDUINO
 #include <cstdio>
@@ -36,7 +36,7 @@ extern void forth_init();
 extern int  forth_vm(const char *cmd, void(*)(int, const char*)=nullptr);
 extern void forth_teardown();
 
-const char* APP_VERSION = "uVAC v1.0";
+const char* APP_VERSION = "uVAC v1.0 " E4_CONFIG;
 
 #ifndef FORTH_CORE
   #define FORTH_CORE        1          ///< core to pin Forth to
