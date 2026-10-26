@@ -112,3 +112,16 @@ You can control the mainframe engine routing manually from the web terminal usin
 1. **Hardware**: ESP32-S3 4848S040 Board (4.0" 480x480 Smart Display with Octal PSRAM).
 2. **Libraries**: `Arduino_GFX_Library`, `TAMC_GT911`, `lvgl` (v8.x recommended).
 3. **Configuration**: Set your target router credentials inside `uVAC.ino` before launching the compilation chain.
+
+## To BUILD
+### ESP-IDF
+    alias idf 'idf.py -B .build'
+    idf build
+    idf flash
+    idf monitor
+
+### Arduino IDE + ESP32
+    cp tests/uvac_repl.ino uvac.ino
+    compile
+    open Serial Monitor set 115200 baud, CR/LF
+    upload
