@@ -46,61 +46,6 @@ alignas(16) static U8 _pmem_buf[E4_PMEM_SZ]; ///< static to ensure alignment
 ///  Note:
 ///    so we can change pmem implementation anytime without affecting opcodes defined below
 ///
-///@name data stack access macros
-///@{
-#define SS        (vm.ss.v)
-#define RS        (vm.rs.v)
-#define SP        (vm.ss.idx)
-#define RP        (vm.rs.idx)
-#define IP        (vm.ip)
-#define TOS       (sp[-1])                 /**< top of stack (memory shadow slot)       */
-#define NOS       (sp[-2])                 /**< next of stack                           */
-#define OS3       (sp[-3])                 /**< 3rd of stack in memory                  */
-#define OS4       (sp[-4])                 /**< 4th of stack in memory                  */
-#define DEPTH     ((int)(sp - SS))         /**< number of items on stack                */
-///@}
-///@name return stack access macros
-///@{
-#if E4_RTOP                                /** return stack pointer cached in a register  */
-#define RPUSH(x)   (*rp++ = (x))
-#define RPOP()     (*--rp)
-#define RTOP       (rp[-1])
-#define RTOP2      (rp[-2])
-#define RDROP(n)   (rp -= (n))
-#define RDEPTH     ((int)(rp - RS))
-#define RRESET()   (rp = RS)
-#define RSPILL()   (RP = rp - RS)          /** register => vm, before leaving the register world */
-#define RRELOAD()  (rp = RS + RP)          /** vm => register */
-#else // E4_RTOP                           /** RS/RP live in the VM struct (memory)       */
-#define RPUSH(x)   (RS[RP++] = (x))
-#define RPOP()     (RS[--RP])
-#define RTOP       (RS[RP-1])
-#define RTOP2      (RS[RP-2])
-#define RDROP(n)   (RP -= (n))
-#define RDEPTH     (RP)
-#define RRESET()   (RP = 0)
-#define RSPILL()
-#define RRELOAD()
-#endif // E4_RTOP
-///@}
-///@name register spill/reload macro (for tail-call optimization)
-///@brief 
-///   Register window <=> memory sync. Use around any call that reads or
-///   writes this VM's stack through memory (include, tasking, ...).
-///@{
-#if E4_NOS
-#define FILL()   ({ sp--; nos = NOS; })
-#define PUSH(v)  ({ NOS = nos; nos = tos; tos = (DU)(v); sp++; })
-#define SPILL()  ({ SP = sp - SS; RSPILL();  TOS = tos; NOS = nos; }) /**< registers => memory  */
-#define RELOAD() ({ sp = SS + SP; RRELOAD(); tos = TOS; nos = NOS; }) /**< memory => registers  */
-#else  // E4_NOS
-#define nos      (sp[-2])                                             /**< TOS-only cache: NOS stays in memory     */
-#define FILL()   ({ sp--; })
-#define PUSH(v)  ({ DU _v = (DU)(v); TOS = tos; tos = _v; sp++; })
-#define SPILL()  ({ SP = sp - SS; RSPILL();  TOS = tos; })            /**< registers => memory  */
-#define RELOAD() ({ sp = SS + SP; RRELOAD(); tos = TOS; })            /**< memory => registers  */
-#endif // E4_NOS
-///@}
 ///@name Direct array-index tracking mappings
 ///@{
 #define HERE      (pmem.idx)                       /**< current parameter memory index          */
@@ -196,8 +141,6 @@ const Code *find(const char *s) {
 ///
 ///> macros to reduce function verbosity
 ///
-#define POP()    ({ DU _rst = tos; tos = nos; FILL(); _rst; })
-#define POPI()   (UINT(POP()))
 #define BOOL(f)  ((f)?-1:0)               /**< Forth boolean representation */
 #define ALU(op)  ({ tos = nos op tos; FILL(); })
 #define UALU(op) ({ tos = UINT(nos) op UINT(tos); FILL(); })
