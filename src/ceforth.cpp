@@ -283,16 +283,12 @@ static IU gStop[] = { TOK(doSTOP) };  ///< tempoline sentinal
     }
 
 #if (E4_TRAMP && XT0_U32)
-extern "C" void e4_run(IU *ip, DU *sp, DU tos, DU *rp, VM &vm, Ret *out);
+extern "C" void e4_run(XT_ARGS, Ret *out);
 static void run(XT_ARGS) {
     Ret o;
+    e4_run(XT_PASS, &o);
 #if E4_RTOP
-    e4_run(ip, sp, tos, rp, vm, &o);
     RP = o.rp - RS;
-#else // E4_RTOP
-    DU *rp = &RS[-1];
-    e4_run(ip, sp, tos, rp, vm, &o);
-    RP = rp - RS;
 #endif // E4_RTOP    
     IP = 0;
     SP = o.sp - SS;
