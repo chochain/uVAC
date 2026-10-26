@@ -4,7 +4,12 @@
 /// @file
 /// @brief eForth implemented for ESP32
 /// @note
-///    benchmark: 1K*1K test case
+///    GFX_Library v1.4.7
+///    TAMC GT911  v1.0.2
+///    lvgl        v8.4.0
+
+/// @note
+///    benchmark : xx 999 for 34 drop next ; : yy 999 for xx next ;
 ///    1440ms Dr. Ting's orig/esp32forth_82
 ///    1240ms ~/Download/forth/esp32/esp32forth8_exp9
 ///    1045ms orig/esp32forth8_1
@@ -12,8 +17,11 @@
 ///     940ms orig/40x/ceforth use cached xt offsets in nest()
 ///     665ms src/ceforth vector-based, object-threaded
 ///     534ms src/ceforth, multi-threading, vector-based, object-threaded (with gcc -O3)
+///     466ms 32-bit direct-threaded, trampoline
 ///
-const char *APP_VERSION = "uVAC v1.0";
+///     benchmark : xx 999 for 34 i + drop next ; : yy 999 for xx next ;
+///     404ms ref: ESP32forth
+///     466ms 32-bit direct-threaded, trampoline
 ///
 ///> interface to core module
 ///
@@ -23,6 +31,8 @@ const char *APP_VERSION = "uVAC v1.0";
 #include "xserver2.h"
 #include "xgl_actor.h"           ///< GUI Actor (LVGL+Touch)
 #include "../ceforth.h"          ///< Forth VM itself
+
+const char *APP_VERSION = "uVAC v1.0";
 
 extern void forth_init();
 extern int  forth_vm(const char *cmd, void(*hook)(int, const char*));
@@ -34,17 +44,14 @@ extern List<Code*, E4_DICT_SZ> dict;
 void mem_stat()  {
     size_t  rf = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     size_t  rt = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
-    int64_t rp = (int64_t)(1000.0f * rf / rt);
+    float   rp = 100.0 * rf / rt;
     size_t  sf = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     size_t  st = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-    int64_t sp = (int64_t)(1000.0f * sf / st);
+    float   sp = 100.0 * sf / st;
     
-    LOGS("\nSRAM ");  LOG(static_cast<float>(rp) * 0.1);
-    LOGS("% free ("); LOG(rf>>10);
-    LOGS(" / ");      LOG(rt>>10); LOGS(" KB)");
-    LOGS(", PSRAM "); LOG(static_cast<float>(sp) * 0.1);
-    LOGS("% free ("); LOG(sf>>10);
-    LOGS(" / ");      LOG(st>>10); LOGS(" KB)\n");
+    LOG("\nSRAM %0.1f%% free (%zd/%zd KB), PSRAM %0.1f%% free (%zd/%zd KB)\n",
+        rp, (rf>>10), (rt>>10), sp, (sf>>10), (st>>10)
+    );
 }
 ///====================================================================
 ///
@@ -56,21 +63,21 @@ void mem_stat()  {
 void forth_include(const char *fname) {
     auto dumb = [](int, const char *) { /* silent output */ };
     if (!SPIFFS.begin()) {
-        LOGS("Error mounting SPIFFS"); return;
+        ERR("Error mounting SPIFFS"); return;
     }
     File file = SPIFFS.open(fname, "r");
     if (!file) {
-        LOGS("Error opening file:"); LOG(fname); return;
+        LOG("Error opening file:", fname); return;
     }
-    LOGS("Loading file: "); LOG(fname); LOGS("...");
+    LOG("Loading file: %s...", fname);
     while (file.available()) {
         char cmd[256], *p = cmd, c;
         while ((c = file.read())!='\n') *p++ = c;   // one line a time
         *p = '\0';
-        LOGS("\n<< "); LOG(cmd);                    // show bootstrap command
+        LOG("\n<< %s", cmd);                        // show bootstrap command
         forth_vm(cmd, dumb);
     }
-    LOGS("Done loading.\n");
+    LOG("Done loading %s.\n", fname);
     file.close();
     SPIFFS.end();
 }
@@ -92,15 +99,10 @@ constexpr Code ops[] = {
 };
 
 void mcu_init() {
-    LOGS("\n");                  LOGS(APP_VERSION);
-    LOGS(" on core[");           LOG(xPortGetCoreID());
-    LOGS("] at ");               LOG(getCpuFrequencyMhz());      
-    LOGS(" MHz\n");
-    LOG_KV("pinMode INPUT|OUTPUT|PULLUP|PULLDOWN=", INPUT);
-    LOG_KV("|", OUTPUT);         LOG_KV("|", INPUT_PULLUP);
-    LOG_KV("|", INPUT_PULLDOWN);
-    LOG_KV(", digitalWrite HIGH|LOW=", HIGH);
-    LOG_KV("|", LOW);            LOGS("\n");
+    LOG("\n%s on core[%d] at %d MHz\n",
+        APP_VERSION, xPortGetCoreID(), getCpuFrequencyMhz());      
+    LOG("pinMode INPUT|OUTPUT|PULLUP|PULLDOWN=%d|%d|%d|%d, digitalWrite HIGH|LOW=%d|%d\n",
+        INPUT, OUTPUT, INPUT_PULLUP, INPUT_PULLDOWN, HIGH, LOW);
     
     forth_init();
     
