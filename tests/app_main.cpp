@@ -22,21 +22,12 @@
 ///     589ms uvac: 32-bit single-threaded, lambda-trampoline (ESP-IDF, 160MHz)
 ///     383ms uvac: 32-bit single-threaded, lambda-trampoline (Arduino IDE, 240MHz)
 ///
-#if ARDUINO
-#include "soc/soc.h"                      /// * for brown out detector
-#include "soc/rtc_cntl_reg.h"             /// * RTC control registers
-#include <Arduino.h>
-#include "src/config.h"
-
-#else // !ARDUINO
-
 #include <cstdio>
 #include <ctime>
 #include <string>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "config.h"
-#endif // ARDUINO
 
 using namespace std;
 
@@ -63,46 +54,6 @@ const char* APP_VERSION = "uVAC v1.0 " E4_CONFIG;
 void mem_stat()                    { LOG("%s\n", APP_VERSION); }
 void forth_include(const char *fn) {}
 
-#if ARDUINO
-static void forth_out(int len, const char *str) {
-    Serial.print(str); // Redirect VM output text explicitly to hardware UART
-}
-
-static void read_line(std::string &line) {
-    line.clear();
-    for (;;) {
-        // Use Serial.available() to check hardware UART ring buffer status
-        if (Serial.available() == 0) { 
-            vTaskDelay(pdMS_TO_TICKS(10)); 
-            continue; 
-        }
-        
-        int c = Serial.read();
-        if (c == -1) continue;
-        
-        // Handle Return keys (\r or \n) depending on Serial Monitor settings
-        if (c == '\r' || c == '\n') { 
-            Serial.write('\n'); 
-            return; 
-        }
-        
-        // Handle Backspace characters (ASCII 0x08 or 0x7F) safely
-        if (c == 0x08 || c == 0x7f) {
-            if (!line.empty()) { 
-                line.pop_back(); 
-                Serial.print("\b \b"); // Clear character visually on terminals
-            }
-            continue;
-        }
-        
-        // Push visible ASCII printable characters into the buffer
-        if (c >= 0x20 && line.length() < E4_IBUF_SZ - 1) {
-            line.push_back((char)c);
-            Serial.write(c); // Echo typed input back to terminal window
-        }
-    }
-}
-#else // !ARDUINO
 static void forth_out(int len, const char *str) {
     fwrite(str, 1, len, stdout);
     fflush(stdout);
@@ -124,7 +75,6 @@ static void read_line(std::string &line) {
         }
     }
 }
-#endif // ARDUINO
 
 static void forth_task(void *arg) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -142,30 +92,6 @@ static void forth_task(void *arg) {
     vTaskDelete(NULL);                              // a task must never just return
 }
 
-#if ARDUINO
-void setup() {
-    delay(200);
-    Serial.begin(115200);
-    while (!Serial) { delay(10); } // Block safely until native USB CDC port enumerates
-    
-#if CONFIG_FREERTOS_UNICORE
-    const BaseType_t core = tskNO_AFFINITY;         // single-core chips (S2, C3...)
-#else
-    const BaseType_t core = FORTH_CORE;
-#endif
-    BaseType_t ok = xTaskCreatePinnedToCore(
-        forth_task, "forth", FORTH_TASK_STACK, NULL, FORTH_TASK_PRIO, NULL, core);
-    
-    if (ok != pdPASS) {
-        Serial.println("[ERROR] forth task create failed");
-    }
-    
-    vTaskDelete(NULL);
-}
-
-void loop() {}
-
-#else // !ARDUINO
 extern "C" void app_main(void) {
 #if CONFIG_FREERTOS_UNICORE
     const BaseType_t core = tskNO_AFFINITY;         // single-core chips (S2, C3...)
@@ -178,4 +104,3 @@ extern "C" void app_main(void) {
     if (ok != pdPASS) printf("[ERROR] forth task create failed\n");
     // app_main returns; the main task is deleted and the system keeps running
 }
-#endif // ARDUINO
