@@ -282,17 +282,23 @@ static IU gStop[] = { TOK(doSTOP) };  ///< tempoline sentinal
         NEXT();                                            \
     }
 
-#if (E4_TRAMP && E4_RTOP && XT0_U32)
+#if (E4_TRAMP && XT0_U32)
 extern "C" void e4_run(IU *ip, DU *sp, DU tos, DU *rp, VM &vm, Ret *out);
 static void run(XT_ARGS) {
     Ret o;
+#if E4_RTOP
     e4_run(ip, sp, tos, rp, vm, &o);
+    RP = o.rp - RS;
+#else // E4_RTOP
+    DU *rp = &RS[-1];
+    e4_run(ip, sp, tos, rp, vm, &o);
+    RP = rp - RS;
+#endif // E4_RTOP    
     IP = 0;
     SP = o.sp - SS;
     o.sp[-1] = o.tos;
-    RP = o.rp - RS;
 }
-#endif // (E4_TRAMP && E4_RTOP && XT0_U32)
+#endif // (E4_TRAMP && XT0_U32)
 
 void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
     vm.state = NEST;
@@ -311,8 +317,12 @@ void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
 
     FPTR fp = NEXT_FP;
 #if E4_TRAMP
-    Ret r = fp(XT_PASS);
+    Ret r = fp(XT_PASS);            /// * trampoline record
+#if E4_RTOP
     run(r.ip, r.sp, r.tos, r.rp, vm);
+#else  // E4_RTOP
+    run(r.ip, r.sp, r.tos, vm);
+#endif // E4_RTOP    
 #else  // E4_TRAMP
     fp(XT_PASS);                    /// * the whole word chain runs by tail calls; doSTOP returns
 #endif // E4_TRAMP
@@ -336,7 +346,11 @@ void CALL(VM &vm, const Code &c) {
 #endif // E4_RTOP
 #if E4_TRAMP
         Ret r = c.xt(XT_PASS);
+#if E4_RTOP        
         run(r.ip, r.sp, r.tos, r.rp, vm);
+#else  // E4_RTOP
+        run(r.ip, r.sp, r.tos, vm);
+#endif // E4_RTOP        
 #else  // E4_TRAMP
         c.xt(XT_PASS);
 #endif // E4_TRAMP

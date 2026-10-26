@@ -170,8 +170,8 @@ typedef int32_t         DU;
 ///@}
 ///@name Logging support
 ///@{
-#if ARDUINO
-    #define LOG(fmt,...) Serial.print(fmt, __VA_ARGS__)
+#if (ARDUINO || ESP32)
+    #define LOG(fmt,...) Serial.printf(fmt, __VA_ARGS__)
     #define ERR(...)     Serial.printf("[ERROR] %s\n", __VA_ARGS__)
 #else  // !(ARDUINO || ESP32)
     #define LOG(fmt,...) printf(fmt, __VA_ARGS__)

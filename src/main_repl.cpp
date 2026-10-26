@@ -1,6 +1,28 @@
 ///
 /// ESP-IDF: interactive Forth core as a FreeRTOS task over the console
 ///
+/// @file
+/// @brief eForth implemented for ESP32
+/// @note
+///    benchmark: 1K*1K test case
+///    : xx 999 for 34 drop next ; : yy 999 for xx next ;
+///    1440ms Dr. Ting's orig/esp32forth_82
+///    1240ms ~/Download/forth/esp32/esp32forth8_exp9
+///    1045ms orig/esp32forth8_1
+///     999ms orig/40x/ceforth subroutine-threaded, 16-bit xt offset
+///     940ms orig/40x/ceforth use cached xt offsets in nest()
+///     665ms src/ceforth vector-based, object-threaded
+///     534ms src/ceforth, multi-threading, vector-based, object-threaded (with gcc -O3)
+///     364ms uvac: main/src/ceforth, 32-bit single-threaded, lambda-trampoline
+///     248ms ref: ESP32forth 7.0.8
+///
+///    benchmark2
+///     : xx 999 for 34 i + drop next ; : yy 999 for xx next ;
+///     
+///     404ms ref: ESP32forth 7.0.8
+///     589ms uvac: main/src/ceforth, 32-bit single-threaded, lambda-trampoline
+///
+#if !ARDUINO
 #include <cstdio>
 #include <ctime>
 #include <string>
@@ -83,3 +105,4 @@ extern "C" void app_main(void) {
     if (ok != pdPASS) printf("[ERROR] forth task create failed\n");
     // app_main returns; the main task is deleted and the system keeps running
 }
+#endif // !ARDUINO
