@@ -11,12 +11,12 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include "main/src/esp32/uvac.h"          ///< uVAC implementation
+#include "src/uvac.h"                     ///< uVAC implementation
 
-//const char *WIFI_SSID = "Amitofo_4F";     ///< use your own SSID
-//const char *WIFI_PASS = "25325754";       ///< and the password
-const char *WIFI_SSID = "iDafu";          ///< use your own SSID
-const char *WIFI_PASS = "AlseTron";       ///< and the password
+const char *WIFI_SSID = "Amitofo_4F";     ///< use your own SSID
+const char *WIFI_PASS = "25325754";       ///< and the password
+//const char *WIFI_SSID = "iDafu";          ///< use your own SSID
+//const char *WIFI_PASS = "AlseTron";       ///< and the password
 const int   WIFI_PORT = 80;               ///< and the password
 
 #define WORKER_TASK_COUNT 1
