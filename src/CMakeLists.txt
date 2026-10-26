@@ -19,7 +19,6 @@ idf_component_register(
     SRCS ${SOURCES}
     INCLUDE_DIRS
     "."
-    "esp32"
     REQUIRES lwip nvs_flash esp_http_server  # Add required hardware/network components here
     )
 
