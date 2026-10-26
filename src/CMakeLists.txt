@@ -2,16 +2,11 @@
 
 # 1. Define your source paths relative to this component directory
 set(SOURCES
-    "main_repl.cpp"
+    "../tests/app_main.cpp"
     "ceforth.cpp"
     "ceforth_sys.cpp"
     "ceforth_task.cpp"
     "e4_run.S"
-)
-set(SOURCES1
-    "esp32/xserver2.cpp"
-    "esp32/xforth.cpp"
-    "esp32/xgl_actor.cpp"
 )
 
 # 2. Register the component with ESP-IDF
