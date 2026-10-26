@@ -53,6 +53,10 @@
 #if E4_TRAMP && E4_NOS
   #error "E4_TRAMP needs E4_NOS=0"
 #endif
+/// macro to string
+#define _MAC2S(x)     #x
+#define MAC2S(x)      _MAC2S(x)
+#define E4_CONFIG     "TRAMP=" MAC2S(E4_TRAMP) " NOS=" MAC2S(E4_NOS) " RTOP=" MAC2S(E4_RTOP)
 ///@}
 ///@name Memory block configuation
 ///@{
