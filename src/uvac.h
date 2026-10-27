@@ -99,8 +99,7 @@ constexpr Code ops[] = {
 };
 
 void mcu_init() {
-    LOG("\n%s on core[%d] at %d MHz\n",
-        APP_VERSION, xPortGetCoreID(), getCpuFrequencyMhz());      
+    LOG("\n%s on %d MHz\n", APP_VERSION, getCpuFrequencyMhz());
     LOG("pinMode INPUT|OUTPUT|PULLUP|PULLDOWN=%d|%d|%d|%d, digitalWrite HIGH|LOW=%d|%d\n",
         INPUT, OUTPUT, INPUT_PULLUP, INPUT_PULLDOWN, HIGH, LOW);
     
