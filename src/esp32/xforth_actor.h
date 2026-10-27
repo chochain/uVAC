@@ -17,27 +17,29 @@ private:
     static void feedback(int len, const char *rst) {
         DEBUG("  xforth[%d] >> <%d>%s", _active_sid, len, rst);
         if (_abort.load()) return;
+        
+        BaseActor *gui = Sys.get_actor(GUI_ACTOR_ID);
 
-        ++_feedback_cnt;
+        for (int off = 0; off < len; off += QUE_BUF_SZ - 1) {
+            int sz = std::min(len - off, QUE_BUF_SZ - 1);
 
-        // 1. Route stream chunks straight to the static SessionCoordinator
-        ActorMsg fb { MSG_FORTH_FEEDBACK, SESMUX_ACTOR_ID, _active_sid };
-        int sz = std::min(len, QUE_BUF_SZ - 1);
-        memcpy(fb.buf, rst, sz);
-        fb.buf[sz] = '\0';
-        Sys.send(fb);
+            ActorMsg fb { MSG_FORTH_FEEDBACK, SESMUX_ACTOR_ID, _active_sid };
+            memcpy(fb.buf, rst + off, sz);
+            fb.buf[sz] = '\0';
+            if (Sys.send(fb, pdMS_TO_TICKS(200))) ++_feedback_cnt;   // count only what really got queued
 
-        // 2. Cross-Core Actor Flow: Send feedback straight across cores to the XGL Display Actor (ID 2)
-        ActorMsg g { MSG_GUI_DRAW_CMD, GUI_ACTOR_ID, _active_sid };
-        memcpy(g.buf, rst, sz);
-        g.buf[sz] = '\0';
-        Sys.send(g);
+            if (!gui) continue;                                      // best effort, bypasses the shared queue
+            ActorMsg g { MSG_GUI_DRAW_CMD, GUI_ACTOR_ID, _active_sid };
+            memcpy(g.buf, rst + off, sz);
+            g.buf[sz] = '\0';
+            gui->receive(g);
+        }
     }
 
 public:
     ForthActor(uint32_t actor_id) : BaseActor(actor_id) {
         _abort.store(false);
-        LOG("[SYSTEM] Forth Actor Registered (ID: %d)\n", FORTH_ACTOR_ID);
+        LOG("[SYSTEM] Forth Actor Registered (ID: %d) on core[%d]\n", FORTH_ACTOR_ID, xPortGetCoreID());
     }
 
     void receive(const ActorMsg &msg) override {
@@ -54,7 +56,7 @@ public:
             {
                 ActorMsg eof { MSG_FORTH_EXEC_EOF, SESMUX_ACTOR_ID, msg.sid };
                 eof.feedback_sent = _feedback_cnt;
-                Sys.send(eof);
+                while (!Sys.send(eof, pdMS_TO_TICKS(50)));  /// keep trying
             }
             break;
 
