@@ -1,6 +1,6 @@
 /// -*- mode: c++ -*-
-#ifndef _XSERVER_MUX_H
-#define _XSERVER_MUX_H
+#ifndef _XSVR_ACTOR_H
+#define _XSVR_ACTOR_H
 
 #include "xactor.h"
 
@@ -22,7 +22,7 @@ struct SessionState {
     bool           eof_wait   = false;
 };
 
-class SessionMux : public BaseActor {
+class ServerActor : public BaseActor {
 private:
     SessionState      _ses[MAX_SESSIONS];
     SemaphoreHandle_t _mutex;           // esp_http_server socket send isolation mutex
@@ -63,7 +63,7 @@ private:
         while (true) {
             if (s.read_idx >= s.total_len) {
                 // All text segments consumed. Safely trigger completion event.
-                ActorMsg done { MSG_FORTH_DONE, SESMUX_ACTOR_ID, s.sid };
+                ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, s.sid };
                 Sys.send(done);
                 return; // 🟢 Safe exit, 0 recursion risk
             }
@@ -133,12 +133,12 @@ private:
     }
 
 public:
-    SessionMux(uint32_t actor_id) : BaseActor(actor_id) {
+    ServerActor(uint32_t actor_id) : BaseActor(actor_id) {
         _mutex = xSemaphoreCreateBinary();
         xSemaphoreGive(_mutex);
     }
 
-    ~SessionMux() override {
+    ~ServerActor() override {
         if (_mutex) vSemaphoreDelete(_mutex);
     }
 
@@ -230,4 +230,4 @@ public:
     }
 };
 
-#endif // _XSERVER_MUX_H
+#endif // _XSVR_ACTOR_H
