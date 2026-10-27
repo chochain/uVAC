@@ -284,7 +284,7 @@ void see(IU pfa, int base) {                                ///< disassemble a c
 }
 
 void words() {
-    const int WIDTH = 56;
+    const int WIDTH = 44;
     auto blip = [](int &sz, int i, const Code &c) {
         const char *nm = c.name;
         const int  len = strlen(nm);
@@ -310,12 +310,12 @@ void words() {
 static int load_dp = 0;
 void load(VM &vm, const char* fn) {
     load_dp++;                           /// * increment depth counter
-    RS.push(*vm.ip);                     /// * save context
+    RS.push(*IP);                        /// * save context
     RS.push(vm.state);
     vm.state = NEST;                     /// * +recursive
     forth_include(fn);                   /// * include file
     vm.state = static_cast<vm_state>(RS.pop());
-    *vm.ip   = UINT(RS.pop());           /// * context restored
+    *IP = UINT(RS.pop());                /// * context restored
     --load_dp;                           /// * decrement depth counter
 }
 
@@ -331,18 +331,19 @@ void ss_dump(VM &vm, bool forced) {
 }
 
 void mem_dump(U32 p0, IU sz, int base) {
+    auto spc = [](int j) { return j % 4 == 3 ? " " : ""; };
     for (IU i=p0 & ~15; i<=(p0+sz); i+=16) {
         fout("%08zx %04x: ", (UFP)&pmem[i], i);
         for (int j=0; j<16; j++) {
             U8 c = pmem[i+j];
-            fout("%02x%s", (int)c, (j % 4 == 3 ? " " : ""));
+            fout("%02x%s", (int)c, spc(j));
         }
+        fout("\n             : ");
         for (int j=0; j<16; j++) {
             U8 c = pmem[i+j] & 0x7f;
-            fout("%c", ((c==0x7f||c<0x20) ? '_' : c));
+            fout(" %c%s", ((c==0x7f||c<0x20) ? '.' : c), spc(j));
         }
         fout_flush('\n');
-        yield();
     }
 }
 
