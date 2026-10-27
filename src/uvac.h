@@ -27,7 +27,7 @@
 ///
 #include "esp32/xactor.h"
 #include "esp32/xforth_actor.h"
-#include "esp32/xserver_mux.h"
+#include "esp32/xsvr_actor.h"
 #include "esp32/xserver2.h"
 #include "esp32/xgl_actor.h"           ///< GUI Actor (LVGL+Touch)
 #include "ceforth.h"                   ///< Forth VM itself
@@ -99,7 +99,7 @@ constexpr Code ops[] = {
 };
 
 void mcu_init() {
-    LOG("\n%s on %d MHz\n", APP_VERSION, getCpuFrequencyMhz());
+    LOG("\n%s at %d MHz\n", APP_VERSION, getCpuFrequencyMhz());
     LOG("pinMode INPUT|OUTPUT|PULLUP|PULLDOWN=%d|%d|%d|%d, digitalWrite HIGH|LOW=%d|%d\n",
         INPUT, OUTPUT, INPUT_PULLUP, INPUT_PULLDOWN, HIGH, LOW);
     
