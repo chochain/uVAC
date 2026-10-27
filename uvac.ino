@@ -19,7 +19,7 @@ const char *WIFI_PASS = "25325754";       ///< and the password
 //const char *WIFI_PASS = "AlseTron";       ///< and the password
 const int   WIFI_PORT = 80;               ///< and the password
 
-#define WORKER_TASK_COUNT 1
+#define WORKER_TASK_COUNT 3               ///< at least 2 to drain queue
 
 ActorSystem Sys; // Global instantiation assignment
 
