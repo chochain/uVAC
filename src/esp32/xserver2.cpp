@@ -3,7 +3,7 @@
 /// @file
 /// @brief Web Server class implementation (esp_http_server v2.0.16)
 ///
-#include "xserver_mux.h"
+#include "xsvr_actor.h"
 #include "xserver2.h"
 #include "esp_heap_caps.h"
 
@@ -144,7 +144,7 @@ static void handle_overflow(void* arg, const char* failed_line) {
 }
 
 // Instantiate the single persistent static tracking coordinator instance
-static SessionMux gSesMux(SESMUX_ACTOR_ID);
+static ServerActor gSvrActor(SERVER_ACTOR_ID);
 
 static esp_err_t handle_abort(httpd_req_t *req) {
     char     buf[32];
@@ -161,7 +161,7 @@ static esp_err_t handle_abort(httpd_req_t *req) {
         ActorMsg x { MSG_FORTH_ABORT, FORTH_ACTOR_ID, sid };
         Sys.send(x, 0, true);
         
-        ActorMsg coord_abort { MSG_FORTH_ABORT, SESMUX_ACTOR_ID, sid };
+        ActorMsg coord_abort { MSG_FORTH_ABORT, SERVER_ACTOR_ID, sid };
         Sys.send(coord_abort, 0, true);
 
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Execution Aborted");
@@ -225,13 +225,13 @@ static esp_err_t handle_execute(httpd_req_t *req) {
     size_t   len = strlen(psram_buf);
 
     // Register session metadata into the fixed index matrix
-    gSesMux.register_new_conn(sid, client_sockfd, req->handle, psram_buf, len);
+    gSvrActor.register_new_conn(sid, client_sockfd, req->handle, psram_buf, len);
     
     return ESP_OK;
 }
 
 bool XServer::begin(int priority) {
-    Sys.register_actor(&gSesMux);
+    Sys.register_actor(&gSvrActor);
     setup();
     return true;
 }
@@ -278,5 +278,6 @@ void XServer::setup() {
     };
     httpd_register_uri_handler(_httpd, &abort_uri);
     
-    LOG("\ncore0 xsvr> live at http://%s\n", WiFi.localIP().toString().c_str());
+    LOG("\nXSVR> live at http://%s on core[%d]\n",
+        WiFi.localIP().toString().c_str(), xPortGetCoreID());
 }

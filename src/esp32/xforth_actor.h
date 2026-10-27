@@ -23,7 +23,7 @@ private:
         for (int off = 0; off < len; off += QUE_BUF_SZ - 1) {
             int sz = std::min(len - off, QUE_BUF_SZ - 1);
 
-            ActorMsg fb { MSG_FORTH_FEEDBACK, SESMUX_ACTOR_ID, _active_sid };
+            ActorMsg fb { MSG_FORTH_FEEDBACK, SERVER_ACTOR_ID, _active_sid };
             memcpy(fb.buf, rst + off, sz);
             fb.buf[sz] = '\0';
             if (Sys.send(fb, pdMS_TO_TICKS(200))) ++_feedback_cnt;   // count only what really got queued
@@ -39,7 +39,7 @@ private:
 public:
     ForthActor(uint32_t actor_id) : BaseActor(actor_id) {
         _abort.store(false);
-        LOG("[SYSTEM] Forth Actor Registered (ID: %d) on core[%d]\n", FORTH_ACTOR_ID, xPortGetCoreID());
+        LOG("VM> Forth VM created on core[%d]\n", xPortGetCoreID());
     }
 
     void receive(const ActorMsg &msg) override {
@@ -54,7 +54,7 @@ public:
             
             // Core Generation complete. Send EOF and pause execution of the next command.
             {
-                ActorMsg eof { MSG_FORTH_EXEC_EOF, SESMUX_ACTOR_ID, msg.sid };
+                ActorMsg eof { MSG_FORTH_EXEC_EOF, SERVER_ACTOR_ID, msg.sid };
                 eof.feedback_sent = _feedback_cnt;
                 while (!Sys.send(eof, pdMS_TO_TICKS(50)));  /// keep trying
             }
@@ -64,7 +64,7 @@ public:
             DEBUG("  xforth[%d] << EOF_ACT\n", msg.sid);
             // The Coordinator confirmed network buffers are clear. Safe to close transaction out-of-order free!
             {
-                ActorMsg done { MSG_FORTH_DONE, SESMUX_ACTOR_ID, msg.sid };
+                ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, msg.sid };
                 Sys.send(done);
             }
             break;
