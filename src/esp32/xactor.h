@@ -18,7 +18,7 @@
 #define DEBUG(fmt, ...) Serial.printf(fmt, __VA_ARGS__)
 
 // Static Global Target Registry IDs
-#define SESMUX_ACTOR_ID 1  // Central Traffic Cop Actor ID
+#define SERVER_ACTOR_ID 1     // Central Traffic Cop Actor ID
 #define FORTH_ACTOR_ID  2
 #define GUI_ACTOR_ID    3
 
