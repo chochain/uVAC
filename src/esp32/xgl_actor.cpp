@@ -291,7 +291,7 @@ void XGL::init_hardware() {
     // Add Boot Greetings Text String
     lv_textarea_set_text(_term_log, "xeForth Initialized.\n\n");
     
-    LOG("core1 XGL> active buf_sz=%d (bytes).\n", raw_sz);
+    LOG("XGL> active buf_sz=%d (bytes) on core[%d].\n", raw_sz, xPortGetCoreID());
 }
 
 
