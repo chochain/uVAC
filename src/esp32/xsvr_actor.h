@@ -64,6 +64,7 @@ private:
             if (s.read_idx >= s.total_len) {
                 // All text segments consumed. Safely trigger completion event.
                 ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, s.sid };
+                done.buf[0] = '\0';
                 Sys.send(done);
                 return; // 🟢 Safe exit, 0 recursion risk
             }
@@ -109,6 +110,7 @@ private:
 
             // 1. Handshake ACK back to Forth Actor to release its lock state
             ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid };
+            ack.buf[0] = '\0';
             Sys.send(ack);
 
             // 2. Move to the next string segment inside PSRAM
