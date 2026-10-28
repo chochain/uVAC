@@ -33,7 +33,7 @@ private:
             ActorMsg g { MSG_GUI_TEXT, GUI_ACTOR_ID, _active_sid };
             memcpy(g.buf, rst + off, sz);
             g.buf[sz] = '\0';
-            gui->receive(g);
+            gui->receive(g);     // a quick handover to XGL mailbox (on core1)
         }
     }
 
@@ -77,8 +77,8 @@ public:
             }
             break;
 
-        case MSG_GUI_TOUCH_TRIGGER:
-            LOG("  [XF].%u << touch(%d, %d)\n", msg.sid, msg.touch.x, msg.touch.y);
+        case MSG_GUI_TOUCH:
+            DEBUG("  [XF].%u << touch(%d, %d)\n", msg.sid, msg.touch.x, msg.touch.y);
             break;
             
         default:
