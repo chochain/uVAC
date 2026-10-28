@@ -25,8 +25,8 @@
 enum ActorMsgType {
     MSG_FORTH_EXEC,           /// Forward individual raw command line to VM
     MSG_FORTH_FEEDBACK,       /// Text streamed back dynamically by the Forth VM
-    MSG_FORTH_EXEC_EOF,       /// Generation checkpoint completed by Forth
-    MSG_FORTH_EOF_ACK,        /// Network Layer verification callback handshake
+    MSG_FORTH_EOL,            /// Generation checkpoint completed by Forth
+    MSG_FORTH_EOL_ACK,        /// Network Layer verification callback handshake
     MSG_FORTH_DONE,           /// Explicit macro execution processing complete
     MSG_FORTH_ABORT,          /// Emergency priority drop request
     MSG_SESSION_TIMEOUT,      /// Stagnation safety event
