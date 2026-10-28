@@ -62,11 +62,12 @@ void my_touchpad_read(lv_indev_drv_t *touch_drv, lv_indev_data_t *data) {
 
             static uint32_t timer = millis() + 100;
             if (millis() > timer) { 
-                ActorMsg touch_msg { MSG_GUI_TOUCH_TRIGGER, FORTH_ACTOR_ID };
-                touch_msg.touch.x = touchX;
-                touch_msg.touch.y = touchY;
-                touch_msg.touch.state = 1;
-                Sys.send(touch_msg);
+                ActorMsg t { MSG_GUI_TOUCH, FORTH_ACTOR_ID };
+                t.buf[0]  = '\0';
+                t.touch.x = touchX;
+                t.touch.y = touchY;
+                t.touch.state = 1;
+                Sys.send(t);
                 timer += 100;
             }
         }
@@ -107,28 +108,33 @@ void XGL::term_print(const char *txt, lv_color_t textColor) {
 }
 
 void XGL::process_mailbox() {
-    ActorMsg req;
-    while (xQueueReceive(_mailbox, &req, 0) == pdTRUE) {
-        DEBUG("    xgl << type=%d, '%s'\n", req.type, req.buf ? (char*)req.buf : (char*)"NA");
-        switch (req.type) {
-        case MSG_GUI_DRAW_CMD:
-            term_print(req.buf, lv_color_make(0, 255, 255));
+    ActorMsg msg;
+    while (xQueueReceive(_mailbox, &msg, 0) == pdTRUE) {
+        switch (msg.type) {
+        case MSG_GUI_TEXT:
+            DEBUG("  [XG].%u << TEXT '%s'\n", msg.sid, (char*)msg.buf);
+            term_print(msg.buf, lv_color_make(0, 255, 255));
+            break;
+        case MSG_GUI_DRAW:  // holder
+            DEBUG("  [XG].%u << DRAW '%s'\n", msg.sid, (char*)msg.buf);
+            term_print(msg.buf, lv_color_make(0, 255, 255));
             break;
         case MSG_SYS_TELEMETRY: {
+            DEBUG("  [XG].%u << SYS '%s'\n", msg.sid, (char*)msg.buf);
 #if 0            
             char fmt_buf[32];
             if (_sram_label) {
-                snprintf(fmt_buf, sizeof(fmt_buf), "SRAM: %d KB", req.memory.free_heap_kb);
+                snprintf(fmt_buf, sizeof(fmt_buf), "SRAM: %d KB", msg.memory.free_heap_kb);
                 lv_label_set_text(_sram_label, fmt_buf);
             }
             if (_psram_label) {
-                snprintf(fmt_buf, sizeof(fmt_buf), "PSRAM: %d KB", req.memory.free_psram_kb);
+                snprintf(fmt_buf, sizeof(fmt_buf), "PSRAM: %d KB", msg.memory.free_psram_kb);
                 lv_label_set_text(_psram_label, fmt_buf);
             }
 #endif
         } break;
         default:
-            LOG("unknown req.type=%d\n", req.type);
+            LOG("  [XG].%u << unknown type=%d '%s'\n", msg.sid, msg.type, (char*)msg.buf);
             break;
         }
     }
