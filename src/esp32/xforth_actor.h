@@ -30,7 +30,7 @@ private:
             DEBUG("  [XF].%u >> FB <%d>%s", _active_sid, sz, fb.buf);
             
             if (!gui) continue;                                      // best effort, bypasses the shared queue
-            ActorMsg g { MSG_GUI_DRAW_CMD, GUI_ACTOR_ID, _active_sid };
+            ActorMsg g { MSG_GUI_TEXT, GUI_ACTOR_ID, _active_sid };
             memcpy(g.buf, rst + off, sz);
             g.buf[sz] = '\0';
             gui->receive(g);
@@ -56,6 +56,7 @@ public:
             // Command line processed. Send EOL and pause execution of next line.
             {
                 ActorMsg eof { MSG_FORTH_EOL, SERVER_ACTOR_ID, msg.sid };
+                eof.buf[0] = '\0';
                 eof.feedback_sent = _feedback_cnt;
                 while (!Sys.send(eof, pdMS_TO_TICKS(50)));  /// keep trying
             }
