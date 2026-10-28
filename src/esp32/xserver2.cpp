@@ -158,11 +158,11 @@ static esp_err_t handle_abort(httpd_req_t *req) {
     }
 
     if (sid != 0) {
-        ActorMsg x { MSG_FORTH_ABORT, FORTH_ACTOR_ID, sid };
-        Sys.send(x, 0, true);
+        ActorMsg fth_x { MSG_FORTH_ABORT, FORTH_ACTOR_ID, sid };
+        Sys.send(fth_x, 0, true);
         
-        ActorMsg coord_abort { MSG_FORTH_ABORT, SERVER_ACTOR_ID, sid };
-        Sys.send(coord_abort, 0, true);
+        ActorMsg svr_x { MSG_FORTH_ABORT, SERVER_ACTOR_ID, sid };
+        Sys.send(svr_x, 0, true);
 
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Execution Aborted");
         return ESP_OK;
