@@ -11,7 +11,7 @@ static const char HTML_INDEX[] PROGMEM = R"XX(<!DOCTYPE html>
 <html>
 <head>
   <meta charset='UTF-8'>
-  <title>xeForth Panel</title>
+  <title>uVAC Panel</title>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
     body { font-family:'Courier New', monospace; font-size:14px; background:#111; color:#0f0; padding:10px; margin:0; }
@@ -82,7 +82,7 @@ static const char HTML_INDEX[] PROGMEM = R"XX(<!DOCTYPE html>
     <div id='log' 
       hx-on::after-swap="
         if (this.scrollHeight - this.scrollTop - this.clientHeight < 300) this.scrollTop = this.scrollHeight
-      ">xeForth v1.0 Initialized...<br/></div>
+      ">uVAC v1.0 Initialized...<br/></div>
     <div id='tib-form'>
       <!-- 2. Apply our custom extension directly to the HTML Form layout -->
       <form hx-post='/execute' hx-target='#staging' hx-swap='innerHTML' hx-ext='raw-text-body'

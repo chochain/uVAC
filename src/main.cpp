@@ -14,7 +14,7 @@ extern void forth_init();
 extern int  forth_vm(const char *cmd, void(*)(int, const char*)=nullptr);
 extern void forth_teardown();
 
-const char* APP_VERSION = "xeForth v1.0";
+const char* APP_VERSION = "uVAC v1.0";
 
 ///====================================================================
 ///
