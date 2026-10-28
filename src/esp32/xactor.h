@@ -87,7 +87,7 @@ private:
             /// blocked at 0% CPU until new msg arrived
             if (xQueueReceive(sys->_queue, &msg, portMAX_DELAY) == pdTRUE) {
                 BaseActor *actor = sys->get_actor(msg.target_id);
-                LOG("actor%u.%u >> [%u]'%s'\n",
+                DEBUG("actor%u.%u >> [%u]'%s'\n",
                     msg.target_id, msg.sid, msg.type, (char*)msg.buf);
                 if (actor) actor->receive(msg);
                 /// no delay here, so no context switching
@@ -136,13 +136,13 @@ public:
     /// Bounded-wait send. ONLY call from threads that are not this queue's
     /// consumer (Forth task, httpd thread). Never from a dispatcher worker.
     bool send(const ActorMsg &msg, TickType_t ticks=QUE_WAIT_TICKS, bool priority=false) {
-        LOG("actor%u.%u << [%u]'%s'",
+        DEBUG("actor%u.%u << [%u]'%s'",
             msg.target_id, msg.sid, msg.type, (char*)msg.buf);
         if (!_queue) return false;
         bool rst = priority
              ? xQueueSendToFront(_queue, &msg, ticks) == pdPASS
              : xQueueSend(_queue, &msg, ticks) == pdPASS;
-        LOG("%s\n", rst ? "" : " => queue full");
+        DEBUG("%s\n", rst ? "" : " => queue full");
         
         return rst;
     }

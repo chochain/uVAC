@@ -127,7 +127,7 @@ private:
             xSemaphoreGive(_mutex);
         }
 
-        LOG("[XS].%u HANGUP sent. Session cleanly closed.\n", s.sid);
+        DEBUG("[XS].%u HANGUP sent. Session cleanly closed.\n", s.sid);
         s.is_active = false;
         s.sid       = 0;
         s.fd        = -1;

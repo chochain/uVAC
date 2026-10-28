@@ -176,7 +176,7 @@ static esp_err_t handle_abort(httpd_req_t *req) {
 // Explicitly updated to pull streaming data directly across the bus into PSRAM
 bool XServer::read_form_psram(httpd_req_t *req, char **out_psram_ptr) {
     int total = req->content_len;
-    LOG("xserver2 content len=%d\n", total);
+    DEBUG("xserver2 content len=%d\n", total);
     if (total <= 0 || total >= 8192) { 
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid Payload Length");
         return false;
@@ -205,7 +205,7 @@ bool XServer::read_form_psram(httpd_req_t *req, char **out_psram_ptr) {
     
     // 3. Simple null-termination. Pristine RAW plain-text content ready for the Coordinator iterator!
     raw[total] = '\0';
-    LOG("xserver2 raw = '%s'\n", raw);
+    DEBUG("xserver2 raw = '%s'\n", raw);
 
     *out_psram_ptr = raw;
     return true;
@@ -216,7 +216,7 @@ static esp_err_t handle_execute(httpd_req_t *req) {
     int client_sockfd = httpd_req_to_sockfd(req);
     if (client_sockfd < 0) return ESP_FAIL;
 
-    LOG("xserver2 handle_execute fd=%d\n", client_sockfd);
+    DEBUG("xserver2 on core[%u] handle_execute fd=%d\n", xPortGetCoreID(), client_sockfd);
     // Stream the code directly to external memory
     char* psram_buf = nullptr;
     if (!server->read_form_psram(req, &psram_buf)) {
@@ -280,6 +280,6 @@ void XServer::setup() {
     };
     httpd_register_uri_handler(_httpd, &abort_uri);
     
-    LOG("\nXSVR> live at http://%s on core[%d]\n",
-        WiFi.localIP().toString().c_str(), xPortGetCoreID());
+    LOG("\nXSVR> live at http://%s on core[%u]\n",
+        WiFi.localIP().toString().c_str(), config.core_id);
 }
