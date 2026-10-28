@@ -30,8 +30,9 @@ enum ActorMsgType {
     MSG_FORTH_DONE,           /// Explicit macro execution processing complete
     MSG_FORTH_ABORT,          /// Emergency priority drop request
     MSG_SESSION_TIMEOUT,      /// Stagnation safety event
-    MSG_GUI_DRAW_CMD,         /// Forward string outputs straight to the LVGL terminal
-    MSG_GUI_TOUCH_TRIGGER,    /// Touch coordinate packets dispatched from Core 1 to Core 0
+    MSG_GUI_TEXT,             /// Forward string outputs straight to the LVGL terminal
+    MSG_GUI_DRAW,             /// Forward string outputs straight to the LVGL terminal
+    MSG_GUI_TOUCH,            /// Touch coordinate packets dispatched from Core 1 to Core 0
     MSG_SYS_TELEMETRY         /// Periodic hardware memory metric tracking frame
 };
 
@@ -44,14 +45,18 @@ struct ActorMsg {
     
     union {
         char buf[QUE_BUF_SZ];   /// Inline 128-byte data transmission window
-        uint32_t line_count;
-        uint32_t feedback_sent;
         struct {
-            int16_t x;
-            int16_t y;
-            uint8_t state; 
+            uint32_t xx0;       /// * so, buffer can carry a few bytes '\0'
+            uint32_t feedback_sent;
+        };
+        struct {
+            uint32_t xx1;
+            int16_t  x;
+            int16_t  y;
+            uint8_t  state; 
         } touch;
         struct {
+            uint32_t xx2;
             uint32_t free_heap_kb;
             uint32_t free_psram_kb;
         } memory;             /// 8-byte payload structure for live metrics
@@ -82,9 +87,8 @@ private:
             /// blocked at 0% CPU until new msg arrived
             if (xQueueReceive(sys->_queue, &msg, portMAX_DELAY) == pdTRUE) {
                 BaseActor *actor = sys->get_actor(msg.target_id);
-                LOG("actor%d.%d >> '%s'\n",
-                    msg.target_id, msg.sid,
-                    msg.type==MSG_FORTH_DONE ? "DONE" : (char*)msg.buf);
+                LOG("actor%u.%u >> [%u]'%s'\n",
+                    msg.target_id, msg.sid, msg.type, (char*)msg.buf);
                 if (actor) actor->receive(msg);
                 /// no delay here, so no context switching
             }
@@ -132,9 +136,8 @@ public:
     /// Bounded-wait send. ONLY call from threads that are not this queue's
     /// consumer (Forth task, httpd thread). Never from a dispatcher worker.
     bool send(const ActorMsg &msg, TickType_t ticks=QUE_WAIT_TICKS, bool priority=false) {
-        LOG("actor%d.%d << '%s'",
-            msg.target_id, msg.sid,
-            msg.type==MSG_FORTH_DONE ? "DONE" : (char*)msg.buf);
+        LOG("actor%u.%u << [%u]'%s'",
+            msg.target_id, msg.sid, msg.type, (char*)msg.buf);
         if (!_queue) return false;
         bool rst = priority
              ? xQueueSendToFront(_queue, &msg, ticks) == pdPASS
