@@ -90,7 +90,7 @@ private:
                 ActorMsg m { MSG_FORTH_EXEC, FORTH_ACTOR_ID, s.sid };
                 memcpy(m.buf, line_buf, w + 1);
                 Sys.send(m);
-                return; // 🟢 Exit function. Wait for EOF handshake token.
+                return; // 🟢 Exit function. Wait for EOL handshake token.
             }
             // If w == 0, the loop naturally continues to evaluate the next line 
             // without allocating any extra stack frames!
@@ -100,7 +100,7 @@ private:
     void check_and_handshake(int slot) {
         SessionState &s = _ses[slot];
         
-        // Only proceed if we have received the EOF message AND all feedback packets have arrived
+        // Only proceed if we have received the EOL message AND all feedback packets have arrived
         if (s.eof_wait && (s.fb_count == s.fb_total)) {
             // Reset counters for the next line sequence step
             s.fb_count = 0;
@@ -108,7 +108,7 @@ private:
             s.eof_wait = false;
 
             // 1. Handshake ACK back to Forth Actor to release its lock state
-            ActorMsg ack{ MSG_FORTH_EOF_ACK, FORTH_ACTOR_ID, s.sid };
+            ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid };
             Sys.send(ack);
 
             // 2. Move to the next string segment inside PSRAM
@@ -125,7 +125,7 @@ private:
             xSemaphoreGive(_mutex);
         }
 
-        LOG("[SC] Session %u cleanly closed.\n", s.sid);
+        LOG("[XS].%u HANGUP sent. Session cleanly closed.\n", s.sid);
         s.is_active = false;
         s.sid       = 0;
         s.fd        = -1;
@@ -145,7 +145,7 @@ public:
     void register_new_conn(uint32_t sid, int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
         int slot = get_empty_slot();
         if (slot == -1) {
-            LOG("[SC] Max session capacity %d hit! Rejecting request.\n", MAX_SESSIONS);
+            LOG("[XS] Max session capacity %d hit! Rejecting request.\n", MAX_SESSIONS);
             heap_caps_free(psram_buf); // Release allocation payload block
             return;
         }
@@ -161,7 +161,7 @@ public:
         s.fb_total  = 0;
         s.eof_wait  = false;
         s.is_active = true;
-
+        
         // Flush HTTP Chunked Transfer Encoding initial response headers line-by-line
         const char* headers =
             "HTTP/1.1 200 OK\r\n"
@@ -170,6 +170,7 @@ public:
             "Connection: keep-alive\r\n\r\n";
         httpd_socket_send(hd, fd, headers, strlen(headers), 0);
 
+        DEBUG("[XS].%u Session created, HEADER sent.\n", sid);
         // Begin your execution sequence loop [1]
         dispatch_next_line(slot);
     }
@@ -189,7 +190,7 @@ public:
 
         switch (msg.type) {
         case MSG_FORTH_FEEDBACK:
-            DEBUG("[SC] %u >> '%s'\n", msg.sid, (char*)msg.buf);
+            DEBUG("[XS].%u << FB => '%s'\n", msg.sid, (char*)msg.buf);
             s.fb_count++; // 👈 Track arrival
             send_chunk(s.hd, s.fd, msg.buf, strlen(msg.buf));
             
@@ -197,14 +198,14 @@ public:
             check_and_handshake(slot);
             break;
 
-        case MSG_FORTH_EXEC_EOF:
-            DEBUG("[SC] %u EXEC_EOF => ACK\n", msg.sid);
+        case MSG_FORTH_EOL:
+            DEBUG("[XS].%u << EOL => EOL_ACK\n", msg.sid);
             // Forth VM completed its processing loop step and is waiting!
             // 1. Force the LwIP network buffers to clear out onto the physical wire
             // (Optional: flush hardware sockets if necessary)
 
             // Forth VM has finished generating, record the target number it sent
-            s.fb_total  = msg.feedback_sent;
+            s.fb_total = msg.feedback_sent;
             s.eof_wait = true;
 
             // Verify if all feedbacks are already here, or if we need to wait for late packets
@@ -212,19 +213,19 @@ public:
             break;
             
         case MSG_FORTH_DONE:
-            DEBUG("[SC] %u DONE\n", msg.sid);
+            DEBUG("[XS].%u << DONE\n", msg.sid);
             clean(s, "");
             finish_slot(slot);
             break;
 
         case MSG_FORTH_ABORT:
-            DEBUG("[SC] %u ABORT\n", msg.sid);
+            DEBUG("[XS].%u << ABORT\n", msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
             finish_slot(slot);
             break;
 
         default:
-            DEBUG("[SC] %u Unknown msg.type=%d\n", msg.sid, msg.type);
+            DEBUG("[XS].%u << Unknown msg.type=%d\n", msg.sid, msg.type);
             break;
         }
     }
