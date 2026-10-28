@@ -15,7 +15,6 @@ private:
     static uint32_t          _feedback_cnt;
 
     static void feedback(int len, const char *rst) {
-        DEBUG("  xforth[%d] >> <%d>%s", _active_sid, len, rst);
         if (_abort.load()) return;
         
         BaseActor *gui = Sys.get_actor(GUI_ACTOR_ID);
@@ -28,6 +27,8 @@ private:
             fb.buf[sz] = '\0';
             if (Sys.send(fb, pdMS_TO_TICKS(200))) ++_feedback_cnt;   // count only what really got queued
 
+            DEBUG("  [XF].%u >> FB <%d>%s", _active_sid, sz, fb.buf);
+            
             if (!gui) continue;                                      // best effort, bypasses the shared queue
             ActorMsg g { MSG_GUI_DRAW_CMD, GUI_ACTOR_ID, _active_sid };
             memcpy(g.buf, rst + off, sz);
@@ -45,43 +46,42 @@ public:
     void receive(const ActorMsg &msg) override {
         switch (msg.type) {
         case MSG_FORTH_EXEC:
-            DEBUG("  xforth[%d] << '%s'\n", msg.sid, (char*)msg.buf);
+            DEBUG("  [XF].%d << '%s'\n", msg.sid, (char*)msg.buf);
             _active_sid = msg.sid;
             _abort.store(false);
             _feedback_cnt = 0;
 
             forth_vm(msg.buf, feedback);
             
-            // Core Generation complete. Send EOF and pause execution of the next command.
+            // Command line processed. Send EOL and pause execution of next line.
             {
-                ActorMsg eof { MSG_FORTH_EXEC_EOF, SERVER_ACTOR_ID, msg.sid };
+                ActorMsg eof { MSG_FORTH_EOL, SERVER_ACTOR_ID, msg.sid };
                 eof.feedback_sent = _feedback_cnt;
                 while (!Sys.send(eof, pdMS_TO_TICKS(50)));  /// keep trying
             }
             break;
 
-        case MSG_FORTH_EOF_ACK:
-            DEBUG("  xforth[%d] << EOF_ACT\n", msg.sid);
-            // The Coordinator confirmed network buffers are clear. Safe to close transaction out-of-order free!
-            {
-                ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, msg.sid };
-                Sys.send(done);
-            }
+        case MSG_FORTH_EOL_ACK:
+            DEBUG("  [XF].%u << EOL_ACK\n", msg.sid);
+            // The Coordinator confirmed network buffers are clear.
+            // xsvr_actor already send MSG_FORTH_DONE to itself
+            // Safe to close transaction, out-of-order free!
+            // release lock if any
             break;
 
         case MSG_FORTH_ABORT:
-            DEBUG("  xforth[%d] << ABORT\n", msg.sid);
+            DEBUG("  [XF].%u << ABORT\n", msg.sid);
             if (msg.sid == _active_sid) {
                 _abort.store(true);
             }
             break;
 
         case MSG_GUI_TOUCH_TRIGGER:
-            LOG("xgl touch: (%d, %d)\n", msg.touch.x, msg.touch.y);
+            LOG("  [XF].%u << touch(%d, %d)\n", msg.sid, msg.touch.x, msg.touch.y);
             break;
             
         default:
-            LOG("msg.type=%d not supported\n", msg.type);
+            LOG("  [XF].%u << msg.type=%d not supported\n", msg.sid, msg.type);
             break;
         }
     }
