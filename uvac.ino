@@ -70,9 +70,8 @@ void setup() {
         nullptr,
         timer_callback
     );
-    if (!gTimer || xTimerStart(gTimer, pdMS_TO_TICKS(50)) != pdPASS) {
-        ERR("sys_metric_timer not available");
-    }
+    Serial.printf("[SYSTEM] Metric Timer %s\n",
+        (gTimer && xTimerStart(gTimer, pdMS_TO_TICKS(50)) == pdPASS) ? "OK" : "N/A");
 #endif 
     vTaskDelete(NULL);
 }
