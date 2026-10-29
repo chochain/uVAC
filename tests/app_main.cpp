@@ -32,7 +32,7 @@
 using namespace std;
 
 extern void forth_init();
-extern int  forth_vm(const char *cmd, void(*)(int, const char*)=nullptr);
+extern int  forth_vm(int tid, const char *cmd, void(*)(int, const char*)=nullptr);
 extern void forth_teardown();
 
 const char* APP_VERSION = "uVAC v1.0 " E4_CONFIG;
@@ -85,7 +85,7 @@ static void forth_task(void *arg) {
     std::string line;
     for (;;) {
         read_line(line);
-        if (forth_vm(line.c_str(), forth_out)) break;   // nonzero => BYE
+        if (forth_vm(0, line.c_str(), forth_out)) break;   // nonzero => BYE
     }
     forth_teardown();
     LOG("%s Done!\n", APP_VERSION);
