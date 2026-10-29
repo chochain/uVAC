@@ -28,6 +28,7 @@ std::atomic<bool> ForthActor::_abort(false);
 uint32_t          ForthActor::_feedback_cnt = 0;
 
 XServer       gWebServer(WIFI_SSID, WIFI_PASS, WIFI_PORT);
+ServerActor   gSvrActor(SERVER_ACTOR_ID);
 ForthActor    gForthActor(FORTH_ACTOR_ID);
 XGL           gUiRenderer(GUI_ACTOR_ID, 480, 480);
 TimerHandle_t gTimer       = nullptr;
@@ -45,20 +46,25 @@ void setup() {
     
     // 1. Boot up the central conveyor thread pool system on Core 0 at priority 5
     Sys.begin(WORKER_TASK_COUNT, 5);
-    Serial.printf("\n[SYSTEM] Forth Actor Engine Initializing...\n");
+    Serial.printf("\n[SYSTEM] Actor Engine Initializing with %d workers...\n", WORKER_TASK_COUNT);
 
-    // 2. Register the Core 0 Forth Actor
+    // 2. Register the Core 0 Server Actor (i.e. Session Coordinator)
+    Sys.register_actor(&gSvrActor);
+    Serial.printf("[SYSTEM] Server Actor Registered (ID: %d)\n", SERVER_ACTOR_ID);
+    
+    // 3. Register the Core 0 Forth Actor
     Sys.register_actor(&gForthActor);
     Serial.printf("[SYSTEM] Forth Actor Registered (ID: %d)\n", FORTH_ACTOR_ID);
 
-    // 3. Register the Core 1 Graphics Engine Canvas Actor at priority 10
+    // 4. Register the Core 1 Graphics Engine Canvas Actor at priority 10
     Sys.register_actor(&gUiRenderer);
     gUiRenderer.begin(10); 
     Serial.printf("[SYSTEM] GUI Actor Registered (ID: %d)\n", GUI_ACTOR_ID);
 
-    // 4. Start the Web Server Subsystem
-    // This internally boots the network link and registers the SessionCoordinator
-    Serial.printf("[SYSTEM] WebServer %s.\n", gWebServer.begin(4) ? "started" : "failed");
+    // 5. Start the Web Server Subsystem
+    // This internally boots the network link and link to ServerActor (coordinator)
+    Serial.printf("[SYSTEM] WebServer %s.\n",
+                  gWebServer.begin(&gSvrActor, 4) ? "started" : "failed");
 
     mcu_init();
 #if 0
