@@ -40,6 +40,7 @@ struct ActorMsg {
     ActorMsgType   type;
     uint32_t       target_id;   /// Destination Actor target register
     uint32_t       sid;         /// Session ID tracking tag
+    uint32_t       tid;         /// Forth Task/VM Pool id
     int            fd;          /// Socket file descriptor tracking hook
     httpd_handle_t hd;          /// Webserver process descriptor link
     
