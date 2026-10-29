@@ -143,9 +143,6 @@ static void handle_overflow(void* arg, const char* failed_line) {
     httpd_socket_send(hd, fd, "\r\n", 2, 0);
 }
 
-// Instantiate the single persistent static tracking coordinator instance
-static ServerActor gSvrActor(SERVER_ACTOR_ID);
-
 static esp_err_t handle_abort(httpd_req_t *req) {
     char     buf[32];
     uint32_t sid = 0;
@@ -212,30 +209,36 @@ bool XServer::read_form_psram(httpd_req_t *req, char **out_psram_ptr) {
 }
 
 static esp_err_t handle_execute(httpd_req_t *req) {
-    XServer *server = static_cast<XServer*>(req->user_ctx);
+    XServer *svr = static_cast<XServer*>(req->user_ctx);
     int client_sockfd = httpd_req_to_sockfd(req);
     if (client_sockfd < 0) return ESP_FAIL;
 
     DEBUG("xserver2 on core[%u] handle_execute fd=%d\n", xPortGetCoreID(), client_sockfd);
     // Stream the code directly to external memory
     char* psram_buf = nullptr;
-    if (!server->read_form_psram(req, &psram_buf)) {
+    if (!svr->read_form_psram(req, &psram_buf)) {
         return ESP_FAIL;
     }
-
-    uint32_t sid = Sys.alloc_id();
-    size_t   len = strlen(psram_buf);
-
-    // Register session metadata into the fixed index matrix
-    gSvrActor.register_new_conn(sid, client_sockfd, req->handle, psram_buf, len);
+    svr->conn(client_sockfd, req->handle, psram_buf);
     
     return ESP_OK;
 }
 
-bool XServer::begin(int priority) {
-    Sys.register_actor(&gSvrActor);
-    setup();
+bool XServer::begin(ServerActor *actor, int priority) {
+    if (!actor) return false;
+    
+    _coor = actor;
+    if (!_httpd) setup();
+    
     return true;
+}
+
+void XServer::conn(int sockfd, httpd_handle_t handle, char *buf) {
+    uint32_t sid = Sys.alloc_id();
+    size_t   len = strlen(buf);
+
+    // Register session metadata into the fixed index matrix
+    _coor->register_new_conn(sid, sockfd, handle, buf, len);
 }
 
 void XServer::setup() {
