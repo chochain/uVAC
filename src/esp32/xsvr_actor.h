@@ -9,6 +9,7 @@
 
 struct SessionState {
     uint32_t       sid        = 0;
+    uint32_t       tid        = 0;
     int            fd         = -1;
     httpd_handle_t hd         = nullptr;
     bool           is_active  = false;
@@ -63,7 +64,7 @@ private:
         while (true) {
             if (s.read_idx >= s.total_len) {
                 // All text segments consumed. Safely trigger completion event.
-                ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, s.sid };
+                ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, s.sid, s.tid };
                 done.buf[0] = '\0';
                 Sys.send(done);
                 return; // 🟢 Safe exit, 0 recursion risk
@@ -88,7 +89,7 @@ private:
 
             if (w > 0) {
                 // Valid command found! Dispatch to Forth VM and break the loop
-                ActorMsg m { MSG_FORTH_EXEC, FORTH_ACTOR_ID, s.sid };
+                ActorMsg m { MSG_FORTH_EXEC, FORTH_ACTOR_ID, s.sid, s.tid };
                 memcpy(m.buf, line_buf, w + 1);
                 Sys.send(m);
                 return; // 🟢 Exit function. Wait for EOL handshake token.
@@ -109,7 +110,7 @@ private:
             s.eof_wait = false;
 
             // 1. Handshake ACK back to Forth Actor to release its lock state
-            ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid };
+            ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid, s.tid };
             ack.buf[0] = '\0';
             Sys.send(ack);
 
@@ -122,6 +123,8 @@ private:
         if (slot < 0 || !_ses[slot].is_active) return;
         
         SessionState &s = _ses[slot];
+        
+        vm_get(s.tid).state = STOP;
         if (s.fd >= 0 && s.hd && xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             httpd_socket_send(s.hd, s.fd, "0\r\n\r\n", 5, 0);
             xSemaphoreGive(_mutex);
@@ -130,6 +133,7 @@ private:
         DEBUG("[XS].%u HANGUP sent. Session cleanly closed.\n", s.sid);
         s.is_active = false;
         s.sid       = 0;
+        s.tid       = 0;
         s.fd        = -1;
         s.hd        = nullptr;
     }
@@ -151,9 +155,16 @@ public:
             heap_caps_free(psram_buf); // Release allocation payload block
             return;
         }
+
+        init tid = task_create(0);     ///< instantiate a TASK
+        if (tid < 0) {
+            LOG("[XS] No avialble forth TASK!\n", heap_caps_free(psrm_buf));
+            return;
+        }
         
         SessionState &s = _ses[slot];
         s.sid       = sid;
+        s.tid       = (uint32_t)tid;
         s.fd        = fd;
         s.hd        = hd;
         s.mem_block = psram_buf; 
@@ -172,7 +183,7 @@ public:
             "Connection: keep-alive\r\n\r\n";
         httpd_socket_send(hd, fd, headers, strlen(headers), 0);
 
-        DEBUG("[XS].%u Session created, HEADER sent.\n", sid);
+        DEBUG("[XS].%u Session created on VM %u, HEADER sent.\n", sid, tid);
         // Begin your execution sequence loop [1]
         dispatch_next_line(slot);
     }
