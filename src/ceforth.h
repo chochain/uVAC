@@ -327,7 +327,6 @@ extern       List<U8,    0>          pmem;
 ///@name Multitasking support
 ///@{
 VM&  vm_get(int id=0);                    ///< get a VM with given id
-VM&  vm_curr();                           ///< get current running VM (cooperative)
 void uvar_init();                         ///< setup user area
 
 #if DO_MULTITASK
