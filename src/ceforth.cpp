@@ -160,7 +160,7 @@ int def_word(const char* name) {    ///< display if redefined
 void s_quote(XT_REFS, bool dotq=false) {
     const char *s = SCAN('"')+1;    ///> string skip first blank
     if (vm.compile) {
-        add_xt(dotq ? "_dotq" : "_str"); 
+        add_xt(dotq ? "_dotq" : "_str");
         add_str(s);                 ///> 16-bit len, byte0, byte1, byte2, ..., byteN, '\0'
     }
     else {                          ///> use PAD ad TEMP storage
@@ -232,12 +232,21 @@ static void run(XT_ARGS) {
     e4_run(XT_PASS, &o);
 #if E4_RTOP
     RP = o.rp - RS;
-#endif // E4_RTOP    
+#endif // E4_RTOP
     IP = 0;
     SP = o.sp - SS;
     o.sp[-1] = o.tos;
 }
 #endif // (E4_TRAMP && XT0_U32)
+
+XT_RET doPAUSE(XT_ARGS) {
+    SPILL();                         /// Flush local C register to memory
+    IP = ip;                         /// Point to next IP after resume
+
+    vm.state = HOLD;
+
+    return Ret{ 0, sp, PASS };
+}
 
 void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
     vm.state = NEST;
@@ -261,7 +270,7 @@ void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
     run(r.ip, r.sp, r.tos, r.rp, vm);
 #else  // E4_RTOP
     run(r.ip, r.sp, r.tos, vm);
-#endif // E4_RTOP    
+#endif // E4_RTOP
 #else  // E4_TRAMP
     fp(XT_PASS);                    /// * the whole word chain runs by tail calls; doSTOP returns
 #endif // E4_TRAMP
@@ -285,11 +294,11 @@ void CALL(VM &vm, const Code &c) {
 #endif // E4_RTOP
 #if E4_TRAMP
         Ret r = c.xt(XT_PASS);
-#if E4_RTOP        
+#if E4_RTOP
         run(r.ip, r.sp, r.tos, r.rp, vm);
 #else  // E4_RTOP
         run(r.ip, r.sp, r.tos, vm);
-#endif // E4_RTOP        
+#endif // E4_RTOP
 #else  // E4_TRAMP
         c.xt(XT_PASS);
 #endif // E4_TRAMP
@@ -330,7 +339,7 @@ constexpr Code g_rom[] = {
          ip = (IU*)((U8*)ip + ALIGN(bsz))),
     CODE("_create", PUSH(OFF(++ip)); ip++),
     CODE("_does>",
-         IU *t = (IU*)dict[-1]->xt;                  ///< memory pointer to pfa 
+         IU *t = (IU*)dict[-1]->xt;                  ///< memory pointer to pfa
          *(t+1) = TOK(ip);                           /// * encode does> body token, and bail
          UNNEST()),
     CODE("_next",
@@ -577,9 +586,10 @@ constexpr Code g_rom[] = {
          for (IU i = 0; i < n; i+=sizeof(DU)) add_du(DU0)),  /// zero padding
     CODE("th",    tos = nos + tos * sizeof(DU); FILL()),     /// w i -- w'
     /// @}
-#if DO_MULTITASK
     /// @defgroup Multitasking ops
-    /// @}
+    /// @{
+    CODE("pause", ip--; ip = (IU*)doPAUSE),                  /// Forces trampoline exit
+#if DO_MULTITASK
     CODE("task",                                             /// w -- task_id
          IU w = POPI();                                      ///< dictionary index
          if (dict[w]->is_udf()) {
@@ -636,7 +646,7 @@ constexpr Code g_rom[] = {
     /// @defgroup OS ops
     /// @{
     IMMD("include",                                         /// include an OS file
-         const char *f = WORD(); SPILL(); load(vm, f); RELOAD()),  
+         const char *f = WORD(); SPILL(); load(vm, f); RELOAD()),
     CODE("included",                                        /// include file spec on stack
          POP();                                             /// string length, not used
          const char *f = (const char*)MEM(POP());
@@ -661,7 +671,7 @@ void dict_compile() {                          ///< compile built-in words into 
 #if __SIZEOF_POINTER__ == 8
     // 1. Grab the full 64-bit runtime address of your first primitive lambda
     U64 base = (U64)(g_rom[0].xt);
-    
+
     // 2. Isolate the top 32 bits (the memory page segment)
     // Mask out the lower 32 bits so it's ready for a lightning-fast bitwise OR
 #if XT0_U32
@@ -669,7 +679,7 @@ void dict_compile() {                          ///< compile built-in words into 
 #else
     Code::XT0 = base & XT0_MSK;
 #endif
-    
+
     // 3. Safety Verification
     // Ensure ALL primitives reside within this exact same 4GB segment boundary page
     ///  pmem and the stop cell must share the segment too, or tokens can't be expanded back
@@ -679,7 +689,7 @@ void dict_compile() {                          ///< compile built-in words into 
         ERR("pmem/gStop not in the same 4GB segment as code (use -no-pie, or allocate pmem low)!");
         exit(1);
     }
-#endif // __SIZEOF_POINTER__ == 8 
+#endif // __SIZEOF_POINTER__ == 8
 }
 
 void dict_validate() {
@@ -722,7 +732,7 @@ DU2 parse_number(const char *idiom, int base, int *err) {
 
 void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
     DEBUG("forth_core(%s) ", idiom);
-    
+
     vm.state = QUERY;
     const Code *w = find(idiom);                 ///> * get token by searching through dict
 
@@ -789,16 +799,28 @@ void forth_teardown() {
     t_pool_stop();
 }
 
-int forth_vm(const char *line, void(*hook)(int, const char*)) {
-    VM &vm = vm_get(0);                                     ///< get main thread
-    fout_setup(hook);
-    fin_setup(line);                                        /// * refresh buffer if not resuming
-    
-    char idiom[E4_IBUF_SZ];
-    while (fetch(idiom, E4_IBUF_SZ)) {                      /// * parse a word
-        forth_core(vm, idiom);                              /// * outer interpreter
+int forth_vm(int tid, const char *line, void(*hook)(int, const char*)) {
+    VM &vm = vm_get(tid);
+    fout_setup(hook); // Setup serial/callback hookup
+
+    // 🔄 COOPERATIVE RESUME RESCUE:
+    // Only refresh the global input pointer (tib) if we are executing a brand new command chain.
+    // If vm.state is HOLD, we leave tib exactly where it was when it paused!
+    if (vm.state == STOP || vm.state == QUERY) {
+        fin_setup(line); // This sets tib = line and clears obuf
+        vm.state = QUERY;
     }
-    if (!vm.compile) ss_dump(vm);
-    
-    return vm.state==STOP;
+
+    char idiom[E4_IBUF_SZ];
+    if (vm.state == NEST) {
+        nest(vm); // Resume colon word execution chain
+    }
+    else {
+        // Continue parsing idioms right from the current tib position!
+        while (fetch(idiom, E4_IBUF_SZ)) {
+            forth_core(vm, idiom);
+            if (vm.state == HOLD || vm.state == STOP) break;
+        }
+    }
+    return vm.state == STOP;
 }
