@@ -84,11 +84,11 @@ private:
         ActorSystem *sys = static_cast<ActorSystem*>(pv);
         ActorMsg msg;
         while (1) {
-            /// blocked at 0% CPU until new msg arrived
+            /// n-workers blocked here at 0% CPU until new msg arrived
             if (xQueueReceive(sys->_queue, &msg, portMAX_DELAY) == pdTRUE) {
                 BaseActor *actor = sys->get_actor(msg.target_id);
-                DEBUG("actor%u.%u >> [%u]'%s'\n",
-                    msg.target_id, msg.sid, msg.type, (char*)msg.buf);
+                DEBUG("%s> {%u:%u '%s'} >> [actor%u]\n",
+                      pcTaskGetName(NULL), msg.sid, msg.type, (char*)msg.buf, msg.target_id);
                 if (actor) actor->receive(msg);
                 /// no delay here, so no context switching
             }
@@ -107,7 +107,7 @@ public:
         
         for (int i = 0; i < n; ++i) {
             char name[16];
-            snprintf(name, sizeof(name), "xactor_wrk%d", i);
+            snprintf(name, sizeof(name), "worker%d", i);
             xTaskCreatePinnedToCore(
                 dispatch, name, 8192,
                 this, priority, &_workers[i], 0);   /// Pinned to Core 0
@@ -136,8 +136,8 @@ public:
     /// Bounded-wait send. ONLY call from threads that are not this queue's
     /// consumer (Forth task, httpd thread). Never from a dispatcher worker.
     bool send(const ActorMsg &msg, TickType_t ticks=QUE_WAIT_TICKS, bool priority=false) {
-        DEBUG("actor%u.%u << [%u]'%s'",
-            msg.target_id, msg.sid, msg.type, (char*)msg.buf);
+        DEBUG("%s> [actor%u] << {%u:%u '%s'}",
+              pcTaskGetName(NULL), msg.target_id, msg.sid, msg.type, (char*)msg.buf);
         if (!_queue) return false;
         bool rst = priority
              ? xQueueSendToFront(_queue, &msg, ticks) == pdPASS
