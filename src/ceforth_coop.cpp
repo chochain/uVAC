@@ -9,7 +9,6 @@ int  VM::curr_vm_id = 0;
 #if !DO_MULTITASK
 VM _vm0;                           ///< singleton, no VM pooling
 VM& vm_get(int id) { return _vm0; }/// * return the singleton
-VM& vm_curr()      { return _vm0; }/// * return the singleton
 void uvar_init() {
     U8 *b = &pmem[pmem.idx++];     ///< *base
     *b = 10;                       /// * default 10
@@ -31,10 +30,6 @@ VM& vm_get(int id) {
     return _vm[(id >= 0 && id < E4_VM_POOL_SZ) ? id : 0];
 }
 
-VM& vm_curr() {
-    return _vm[VM::curr_vm_id];
-}
-
 // =====================================================================
 // 🏢 1970s Cooperative Scheduler Ring Execution
 // =====================================================================
@@ -42,7 +37,7 @@ VM& vm_curr() {
 void t_pool_init() {
     // Overriding the hardware thread calculation; everything runs cooperatively on 1 core.
     VM::curr_vm_id = 0;       /// * Main task starts as active leader
-    printf("Cooperative 1970s Round-Robin Tasker initialized across [%d] slots\n", E4_VM_POOL_SZ);
+    LOG("[SYSTEM] Cooperative Tasker initialized across [%d] slots\n", E4_VM_POOL_SZ);
 }
 
 void t_pool_stop() {
