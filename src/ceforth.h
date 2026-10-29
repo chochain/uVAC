@@ -101,9 +101,10 @@ struct ALIGNAS VM {
     IU       base    = 0;          ///< numeric radix (a pointer)
     bool     compile = false;      ///< compiler flag
 
+    static int curr_vm_id;         ///< current running VM id (cooperative)
+
 #if DO_MULTITASK
     static int      NCORE;         ///< number of hardware cores
-    
     static bool     io_busy;       ///< IO locking control
     static MUTEX    io;            ///< mutex for io access
     static MUTEX    tsk;           ///< mutex for tasker
@@ -326,6 +327,7 @@ extern       List<U8,    0>          pmem;
 ///@name Multitasking support
 ///@{
 VM&  vm_get(int id=0);                    ///< get a VM with given id
+VM&  vm_curr();                           ///< get current running VM (cooperative)
 void uvar_init();                         ///< setup user area
 
 #if DO_MULTITASK
@@ -343,7 +345,7 @@ void task_start(int tid);                 ///< start a thread with given task/VM
 void forth_init();
 void forth_teardown();
 void forth_core(VM &vm, const char *idiom);
-int  forth_vm(const char *cmd, void(*hook)(int, const char*)=nullptr);
+int  forth_vm(int tid, const char *cmd, void(*hook)(int, const char*)=nullptr);
 void forth_include(const char *fn);       /// load external Forth script
 void outer(istream &in);                  ///< Forth outer loop
 ///@}
