@@ -9,7 +9,76 @@
 #define CC_DEBUG        1               /**< debug level 0|1|2      */
 #define CASE_SENSITIVE  1               /**< word case sensitive    */
 #define USE_FLOAT       0               /**< support floating point */
-#define DO_MULTITASK    0               /**< multitasking/pthread   */
+#define DO_MULTITASK    1               /**< support multitasking   */
+#ifdef COOP
+#define USE_PTHREAD     0               /**< pthread or cooperative */
+#else  // !COOP
+#define USE_PTHREAD     1
+#endif // COOP
+///@}
+///@name Memory block configuation
+///@{
+#define E4_RS_SZ        48
+#define E4_SS_SZ        48
+#define E4_DICT_SZ      400
+#define E4_PMEM_SZ      (32*1024)
+#define E4_VM_POOL_SZ   8               /**< one plus # cors       */
+#define E4_PAD_SZ       66              /**< temp pad size         */
+#define E4_IBUF_SZ      128             /**< input buffer size     */
+#define E4_OBUF_SZ      1024            /**< output buffer size    */
+#define USER_AREA       (ALIGN16(E4_VM_POOL_SZ))
+///@}
+///@name macro to string
+#define _MAC2S(x)     #x
+#define MAC2S(x)      _MAC2S(x)
+#define E4_CONFIG     "TRAMP=" MAC2S(E4_TRAMP) " NOS=" MAC2S(E4_NOS) " RTOP=" MAC2S(E4_RTOP)
+///@}
+///@name Logical units (instead of physical) for type check and portability
+///@{
+typedef uint64_t        U64;   ///< unsigned 64-bit integer
+typedef uint32_t        U32;   ///< unsigned 32-bit integer
+typedef int32_t         S32;   ///< signed 32-bit integer
+typedef uint16_t        U16;   ///< unsigned 16-bit integer
+typedef uint8_t         U8;    ///< byte, unsigned character
+typedef uintptr_t       UFP;   ///< function pointer as integer
+typedef uint32_t        IU;    ///< instruction pointer unit
+
+#include <cmath>
+#if USE_FLOAT
+typedef double          DU2;
+typedef float           DU;
+#define DU0             0.0f
+#define DU1             1.0f
+#define DU_EPS          0.00001f
+#define INT(v)          (static_cast<S32>(v))
+#define UINT(v)         (static_cast<U32>(v))
+#define MOD(m,n)        ((DU)fmodf(m,n))
+#define ABS(v)          (fabsf(v))
+#define ZEQ(v)          (ABS(v) < DU_EPS)
+#define EQ(a,b)         (ZEQ((a) - (b)))
+#define LT(a,b)         (((a) - (b)) < -DU_EPS)
+#define GT(a,b)         (((a) - (b)) > DU_EPS)
+#define RND()           (static_cast<float>(rand()) / static_cast<float>(RAND_MAX))
+#define MAX(a,b)        (fmaxf(a,b))
+
+#else // !USE_FLOAT
+typedef int64_t         DU2;
+typedef int32_t         DU;
+#define DU0             0
+#define DU1             1
+#define DU_EPS          0
+#define INT(v)          (static_cast<S32>(v))
+#define UINT(v)         (static_cast<U32>(v))
+#define MOD(m,n)        ((m) % (n))
+#define ABS(v)          (abs(v))
+#define ZEQ(v)          ((v)==DU0)
+#define EQ(a,b)         ((a)==(b))
+#define LT(a,b)         ((a) < (b))
+#define GT(a,b)         ((a) > (b))
+#define RND()           (rand())
+#define MAX(a,b)        (std::max(a,b))
+
+#endif // USE_FLOAT
 ///@}
 ///@name Calling convention of the threaded-code words (see ceforth.h)
 ///@brief  override with -DE4_TRAMP=.. -DE4_NOS=..
@@ -53,70 +122,32 @@
 #if E4_TRAMP && E4_NOS
   #error "E4_TRAMP needs E4_NOS=0"
 #endif
-/// macro to string
-#define _MAC2S(x)     #x
-#define MAC2S(x)      _MAC2S(x)
-#define E4_CONFIG     "TRAMP=" MAC2S(E4_TRAMP) " NOS=" MAC2S(E4_NOS) " RTOP=" MAC2S(E4_RTOP)
 ///@}
-///@name Memory block configuation
+///@name compilation flags for trampoline/tailcall control
 ///@{
-#define E4_RS_SZ        48
-#define E4_SS_SZ        48
-#define E4_DICT_SZ      400
-#define E4_PMEM_SZ      (32*1024)
-#define E4_VM_POOL_SZ   4               /**< one plus # cors       */
-#define E4_PAD_SZ       66              /**< temp pad size         */
-#define E4_IBUF_SZ      128             /**< input buffer size     */
-#define E4_OBUF_SZ      1024            /**< output buffer size    */
-#define USER_AREA       (ALIGN16(E4_VM_POOL_SZ))
-///@}
-///
-///@name Logical units (instead of physical) for type check and portability
-///@{
-typedef uint64_t        U64;   ///< unsigned 64-bit integer
-typedef uint32_t        U32;   ///< unsigned 32-bit integer
-typedef int32_t         S32;   ///< signed 32-bit integer
-typedef uint16_t        U16;   ///< unsigned 16-bit integer
-typedef uint8_t         U8;    ///< byte, unsigned character
-typedef uintptr_t       UFP;   ///< function pointer as integer
-typedef uint32_t        IU;    ///< instruction pointer unit
+#if E4_NOS
+#define NARG      DU tos, DU nos
+#define NREF      DU &tos, DU &nos
+#define NPAS      tos, nos
+#else  // E4_NOS
+#define NARG      DU tos
+#define NREF      DU &tos
+#define NPAS      tos
+#endif // E4_NOS
 
-#include <cmath>
-#if USE_FLOAT
-typedef double          DU2;
-typedef float           DU;
-#define DU0             0.0f
-#define DU1             1.0f
-#define DU_EPS          0.00001f
-#define INT(v)          (static_cast<S32)(v))
-#define UINT(v)         (static_cast<U32>(v))
-#define MOD(m,n)        ((DU)fmodf(m,n))
-#define ABS(v)          (fabsf(v))
-#define ZEQ(v)          (ABS(v) < DU_EPS)
-#define EQ(a,b)         (ZEQ((a) - (b)))
-#define LT(a,b)         (((a) - (b)) < -DU_EPS)
-#define GT(a,b)         (((a) - (b)) > DU_EPS)
-#define RND()           (static_cast<float>(rand()) / static_cast<float>(RAND_MAX))
-#define MAX(a,b)        (fmaxf(a,b))
+#if E4_RTOP
+#define ARGS      NARG, DU *rp
+#define REFS      NREF, DU *&rp
+#define PASS      NPAS, rp
+#else // E4_RTOP
+#define ARGS      NARG
+#define REFS      NREF
+#define PASS      NPAS
+#endif // E4_RTOP
 
-#else // !USE_FLOAT
-typedef int64_t         DU2;
-typedef int32_t         DU;
-#define DU0             0
-#define DU1             1
-#define DU_EPS          0
-#define INT(v)          (static_cast<S32>(v))
-#define UINT(v)         (static_cast<U32>(v))
-#define MOD(m,n)        ((m) % (n))
-#define ABS(v)          (abs(v))
-#define ZEQ(v)          ((v)==DU0)
-#define EQ(a,b)         ((a)==(b))
-#define LT(a,b)         ((a) < (b))
-#define GT(a,b)         ((a) > (b))
-#define RND()           (rand())
-#define MAX(a,b)        (std::max(a,b))
-
-#endif // USE_FLOAT
+#define XT_ARGS    IU *ip, DU *sp, ARGS, VM &vm           /** word signature      */
+#define XT_REFS    IU *&ip, DU *&sp, REFS, VM &vm         /** helper by reference */
+#define XT_PASS    ip, sp, PASS, vm                       /** forward as-is       */
 ///@}
 ///@name String comparison
 ///@{
@@ -137,25 +168,25 @@ typedef int32_t         DU;
 #define ALIGN16(sz)     ((sz) + (-(sz) & 0xf))
 #define ALIGN32(sz)     ((sz) + (-(sz) & 0x1f))
 #define ALIGN(sz)       ALIGN4(sz)
-#define DALIGN(sz)      (sz)
+#define DALIGN(sz)      ALIGN4(sz)
 // #define ALIGNAS         alignas(std::hardware_destructive_interference_size) C++17 but didn't work
 #define ALIGNAS         alignas(64)
 #define STRLEN(s)       (ALIGN(sizeof(U16)+strlen(s)+1))  /** calculate string size with alignment */
-#define CALLBACK        fout_cb((int)fout.str().length(), fout.str().c_str()); fout.str("")
-#define FLUSH           flush; CALLBACK
 ///@}
 ///@name Multi-platform support
 ///@{
 #if (ARDUINO || ESP32)
     #if ARDUINO
         #include <Arduino.h>
-        #define to_string(i)    string(String(i).c_str())
-    #else  // ARDUINO
+        #define  to_string(i)   string(String(i).c_str())
+        #define  yield()        delay(1)
+    #else  // !ARDUINO
         #include <esp_task_wdt.h>
         #include <esp_timer.h>
         #define  PROGMEM
         #define  millis()       ((U32)(esp_timer_get_time() / 1000LL))
         #define  delay(ms)      vTaskDelay(pdMS_TO_TICKS(ms))
+        #define  yield()        vTaskDelay(1)
     #endif // ARDUINO
 
 #else  // !(ARDUINO || ESP32)
@@ -194,16 +225,16 @@ typedef int32_t         DU;
 #include <stdarg.h>
     
 #if ARDUINO
-#define VM_HDR(vm, fmt, ...)                                \
-    printf("[%02d.%d]%-4x" fmt,                             \
-           (vm)->id, (vm)->state, (vm)->ip, ##__VA_ARGS__)
-#define VM_TLR(vm, fmt, ...)                                \
+#define VM_HDR(vm, fmt, ...)                  \
+    printf("%02d.%d" fmt,                     \
+           (vm)->id, (vm)->state, ##__VA_ARGS__)
+#define VM_TLR(vm, fmt, ...)                  \
     printf(fmt, ##__VA_ARGS__)
     
 #else // !ARDUINO
 #define VM_HDR(vm, fmt, ...)                  \
-    printf("\e[%dm[%02d.%d]%-4x" fmt "\e[0m", \
-           ((vm)->id&7) ? 38-((vm)->id&7) : 37, (vm)->id, (vm)->state, (vm)->ip, ##__VA_ARGS__)
+    printf("\e[%dm%02d.%d" fmt "\e[0m",       \
+           ((vm)->id&7) ? 38-((vm)->id&7) : 37, (vm)->id, (vm)->state, ##__VA_ARGS__)
 #define VM_TLR(vm, fmt, ...)                  \
     printf("\e[%dm" fmt "\e[0m\n",            \
            ((vm)->id&7) ? 38-((vm)->id&7) : 37, ##__VA_ARGS__)
@@ -212,7 +243,13 @@ typedef int32_t         DU;
     VM_HDR(vm, fmt, ##__VA_ARGS__);           \
     printf("\n")
 
+#else  // !CC_DEBUG
+#define VM_HDR
+#define VM_TLR
+#define VM_LOG
+
 #endif // CC_DEBUG
+
 #else  // !DO_MULTITASK
 #define VM_HDR(vm, fmt, ...)
 #define VM_TLR(vm, fmt, ...)
