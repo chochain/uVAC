@@ -13,27 +13,6 @@
 #define XT0_MSK  0xFFFFFFFF00000000ULL
 
 using namespace std;
-
-#if DO_MULTITASK
-#include <mutex>
-#include <condition_variable>
-typedef  thread             THREAD;
-typedef  mutex              MUTEX;
-typedef  condition_variable COND_VAR;
-#define  GUARD(m)           lock_guard<mutex>  _grd_(m)
-#define  XLOCK(m)           unique_lock<mutex> _xlck_(m)   /** exclusive lock     */
-#define  WAIT(cv,g)         (cv).wait(_xlck_, g)           /** wait for condition */
-#define  NOTIFY(cv)         (cv).notify_one()              /** wake up one task   */
-#define  NOTIFY_ALL(cv)     (cv).notify_all();
-
-#ifdef _POSIX_VERSION
-#include <sched.h>                    /// CPU affinity
-#endif // _POSIX_VERSION
-
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE                    /** Emscripten needs this */
-#endif
-#endif // DO_MULTITASK
 ///
 /// array class template (so we don't have dependency on C++ STL)
 /// Note:
@@ -88,6 +67,13 @@ struct List {
 ///
 ///> VM context (single task)
 ///
+#if (DO_MULTITASK && USE_PTHREAD)
+#include <mutex>
+#include <condition_variable>
+typedef  mutex              MUTEX;
+typedef  condition_variable COND_VAR;
+#endif // (DO_MULTITASK && USE_PTHREAD)
+
 typedef enum { STOP=0, HOLD, QUERY, NEST } vm_state;
 struct ALIGNAS VM {
     List<DU, E4_SS_SZ> ss;         ///< parameter stack
@@ -101,20 +87,21 @@ struct ALIGNAS VM {
     IU       base    = 0;          ///< numeric radix (a pointer)
     bool     compile = false;      ///< compiler flag
 
-    static int curr_vm_id;         ///< current running VM id (cooperative)
-
 #if DO_MULTITASK
+    int      wake    = 0;          ///< ticks to wait (before wake up)
+    
+    void reset(IU ip, vm_state st);///< reset a VM user variables
+    
+#if USE_PTHREAD
     static int      NCORE;         ///< number of hardware cores
-    static bool     io_busy;       ///< IO locking control
     static MUTEX    io;            ///< mutex for io access
     static MUTEX    tsk;           ///< mutex for tasker
     static COND_VAR cv_io;         ///< io control
     static COND_VAR cv_tsk;        ///< tasker control
-    static void _ss_dup(VM &dst, VM &src, int n);
+    static bool     io_busy;
     ///
     /// task life cycle methods
     ///
-    void reset(IU ip, vm_state st);///< reset a VM user variables
     void join(int tid);            ///< wait for the given task to end
     void stop();                   ///< stop VM
     ///
@@ -129,45 +116,9 @@ struct ALIGNAS VM {
     ///
     void io_lock();                ///< lock IO
     void io_unlock();              ///< unlock IO
+#endif // USER_PTHREAD    
 #endif // DO_MULTITASK
 };
-///@name compilation flags
-///@{
-#if E4_NOS
-#define NARG      DU tos, DU nos
-#define NREF      DU &tos, DU &nos
-#define NPAS      tos, nos
-#else  // E4_NOS
-#define NARG      DU tos
-#define NREF      DU &tos
-#define NPAS      tos
-#endif // E4_NOS
-
-#if E4_RTOP
-#define ARGS      NARG, DU *rp
-#define REFS      NREF, DU *&rp
-#define PASS      NPAS, rp
-#else // E4_RTOP
-#define ARGS      NARG
-#define REFS      NREF
-#define PASS      NPAS
-#endif // E4_RTOP
-
-#if E4_TRAMP
-#if E4_RTOP
-struct  Ret        { IU *ip; DU *sp; DU tos; DU *rp; };
-#else  // E4_RTOP
-struct  Ret        { IU *ip; DU *sp; DU tos; };
-#endif // E4_RTOP
-#define XT_RET     Ret
-#else // E4_TRAMP
-#define XT_RET     void*
-#endif // E4_TRAMP
-typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm);      ///< trampoline or tail-call (returns NEXT)
-#define XT_ARGS    IU *ip, DU *sp, ARGS, VM &vm                /** word signature      */
-#define XT_REFS    IU *&ip, DU *&sp, REFS, VM &vm              /** helper by reference */
-#define XT_PASS    ip, sp, PASS, vm                            /** forward as-is       */
-///@}
 ///@name data stack access macros
 ///@{
 #define SS        (vm.ss.v)
@@ -231,7 +182,21 @@ typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm);      ///< trampoline o
 #define IMM_ATTR   0x0002   /** immediate word       */
 #define EXT_FLAG   0x8000   /** prim/xt/pfa selector */
 #define UDF_DICT   0x8000   /** user defined word    */
-///}
+///@}
+///@name return types for trampoline/tailcall control
+///@{
+#if E4_TRAMP
+#if E4_RTOP
+struct  Ret        { IU *ip; DU *sp; DU tos; DU *rp; };
+#else  // E4_RTOP
+struct  Ret        { IU *ip; DU *sp; DU tos; };
+#endif // E4_RTOP
+#define XT_RET     Ret
+#else // E4_TRAMP
+#define XT_RET     void*
+#endif // E4_TRAMP
+typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm); ///< trampoline or tail-call (returns NEXT)
+///@}
 ///@name Code class
 ///@brief - basic struct of dictionary entries
 ///
@@ -302,10 +267,12 @@ extern const int  g_romsz;
 extern       U8   *MEM0;
 extern       List<Code*, E4_DICT_SZ> dict;
 extern       List<U8,    0>          pmem;
-
+///@}
 // =====================================================================
 // 2. High-Performance Token Unpacking Profile (Cross-Bit Portability)
 // =====================================================================
+///@name lambda-based Forth NEXT implementation
+///@{
 #if XT0_U32
 #define NEXT_FP  ((FPTR)(UFP)(*ip++))
 #else  // XT0_U32
@@ -333,8 +300,11 @@ void uvar_init();                         ///< setup user area
 void t_pool_init();                       ///< initialize thread pool
 void t_pool_stop();                       ///< stop thread pool
 int  task_create(IU pfa);                 ///< create a VM starting on pfa
-void task_start(int tid);                 ///< start a thread with given task/VM id
-#else
+void task_start(int tid);                 ///< start a task with given task/VM id
+int  task_state(int tid);                 ///< return the state of a task
+void task_status();
+bool task_pause(int ms=0);                ///< pause current task (returns if any task ran)
+#else   // DO_MULTITASK
 #define t_pool_init()
 #define t_pool_stop()
 #endif // DO_MULTITASK
@@ -344,7 +314,7 @@ void task_start(int tid);                 ///< start a thread with given task/VM
 void forth_init();
 void forth_teardown();
 void forth_core(VM &vm, const char *idiom);
-int  forth_vm(int tid, const char *cmd, void(*hook)(int, const char*)=nullptr);
+int  forth_vm(const char *cmd, void(*hook)(int, const char*)=nullptr);
 void forth_include(const char *fn);       /// load external Forth script
 void outer(istream &in);                  ///< Forth outer loop
 ///@}
@@ -369,8 +339,14 @@ const Code *find(const char *s);
 ///{@
 typedef enum { CR=0, DOT, UDOT, EMIT, SPCS } io_op;
 
+bool io_rx_ready();
+int  io_rx_get();
+bool io_rx_eof();
+int  io_tx_free();
+
 void fin_setup(const char *line);
 void fout_setup(void (*hook)(int, const char*));
+bool handle_idle();                                      ///< if Forth core idling
 
 const char *scan(char c, char *buf, int max=E4_PAD_SZ);  ///< scan input stream for a given char
 const char *word(char *buf, int max=E4_PAD_SZ);          ///< get next idiom
@@ -384,6 +360,7 @@ void pstr(const char *str, io_op op=SPCS);               ///< print string
 ///@}
 ///@name Debug functions
 ///@{
+const Code *tok2code(IU tok);             ///< get Code pointer from given token/address
 void ss_dump(VM &vm, bool forced=false);  ///< show data stack content
 void see(IU pfa, int base);               ///< disassemble user defined word
 void words();                             ///< list dictionary words
