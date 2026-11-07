@@ -46,12 +46,66 @@ alignas(16) static U8 _pmem_buf[E4_PMEM_SZ]; ///< static to ensure alignment
 ///  Note:
 ///    so we can change pmem implementation anytime without affecting opcodes defined below
 ///
+///@name data stack access macros
+///@{
+#define SS        (vm.ss.v)
+#define RS        (vm.rs.v)
+#define SP        (vm.ss.idx)
+#define RP        (vm.rs.idx)
+#define IP        (vm.ip)
+#define TOS       (sp[-1])                 /**< top of stack (memory shadow slot)       */
+#define NOS       (sp[-2])                 /**< next of stack                           */
+#define OS3       (sp[-3])                 /**< 3rd of stack in memory                  */
+#define OS4       (sp[-4])                 /**< 4th of stack in memory                  */
+#define DEPTH     ((int)(sp - SS))         /**< number of items on stack                */
+///@}
+///@name return stack access macros
+///@{
+#if E4_RTOP                                /** return stack pointer cached in a register  */
+#define RPUSH(x)   (*rp++ = (x))
+#define RPOP()     (*--rp)
+#define RTOP       (rp[-1])
+#define RTOP2      (rp[-2])
+#define RDROP(n)   (rp -= (n))
+#define RDEPTH     ((int)(rp - RS))
+#define RRESET()   (rp = RS)
+#define RSPILL()   (RP = rp - RS)          /** register => vm, before leaving the register world */
+#define RRELOAD()  (rp = RS + RP)          /** vm => register */
+#else // E4_RTOP                           /** RS/RP live in the VM struct (memory)       */
+#define RPUSH(x)   (RS[RP++] = (x))
+#define RPOP()     (RS[--RP])
+#define RTOP       (RS[RP-1])
+#define RTOP2      (RS[RP-2])
+#define RDROP(n)   (RP -= (n))
+#define RDEPTH     (RP)
+#define RRESET()   (RP = 0)
+#define RSPILL()
+#define RRELOAD()
+#endif // E4_RTOP
+///@}
+///@name register spill/reload macro (for tail-call optimization)
+///@brief 
+///   Register window <=> memory sync. Use around any call that reads or
+///   writes this VM's stack through memory (include, tasking, ...).
+///@{
+#if E4_NOS
+#define FILL()   ({ sp--; nos = NOS; })
+#define PUSH(v)  ({ NOS = nos; nos = tos; tos = (DU)(v); sp++; })
+#define SPILL()  ({ SP = sp - SS; RSPILL();  TOS = tos; NOS = nos; }) /**< registers => memory  */
+#define RELOAD() ({ sp = SS + SP; RRELOAD(); tos = TOS; nos = NOS; }) /**< memory => registers  */
+#else  // E4_NOS
+#define nos      (sp[-2])                                             /**< TOS-only cache: NOS stays in memory     */
+#define FILL()   ({ sp--; })
+#define PUSH(v)  ({ DU _v = (DU)(v); TOS = tos; tos = _v; sp++; })
+#define SPILL()  ({ SP = sp - SS; RSPILL();  TOS = tos; })            /**< registers => memory  */
+#define RELOAD() ({ sp = SS + SP; RRELOAD(); tos = TOS; })            /**< memory => registers  */
+#endif // E4_NOS
+///@}
 ///@name Direct array-index tracking mappings
 ///@{
 #define HERE      (pmem.idx)                       /**< current parameter memory index          */
 #define HERE_PTR  ((IU*)&pmem[HERE])
 #define HERE_TGT  (TOK(HERE_PTR))                  /**< token (pointer) of current pmem position */
-
 #if XT0_U32
 #define ADDR(t)   ((UFP)(IU)(t))                   /**< 32-bit token => address (the only place XT0 appears) */
 #else  // !XT0_U32
@@ -141,6 +195,8 @@ const Code *find(const char *s) {
 ///
 ///> macros to reduce function verbosity
 ///
+#define POP()    ({ DU _rst = tos; tos = nos; FILL(); _rst; })
+#define POPI()   (UINT(POP()))
 #define BOOL(f)  ((f)?-1:0)               /**< Forth boolean representation */
 #define ALU(op)  ({ tos = nos op tos; FILL(); })
 #define UALU(op) ({ tos = UINT(nos) op UINT(tos); FILL(); })
@@ -160,7 +216,7 @@ int def_word(const char* name) {    ///< display if redefined
 void s_quote(XT_REFS, bool dotq=false) {
     const char *s = SCAN('"')+1;    ///> string skip first blank
     if (vm.compile) {
-        add_xt(dotq ? "_dotq" : "_str");
+        add_xt(dotq ? "_dotq" : "_str"); 
         add_str(s);                 ///> 16-bit len, byte0, byte1, byte2, ..., byteN, '\0'
     }
     else {                          ///> use PAD ad TEMP storage
@@ -201,7 +257,9 @@ void s_quote(XT_REFS, bool dotq=false) {
 ///          * 32-bit Param ref       Ir/Dr = 3.1M/0.8M (843ms)
 ///
 XT_RET doSTOP(XT_ARGS) {
+    if (vm.id) vm.state = STOP;       /// * finish task, free slot
 #if E4_TRAMP
+    IP = 0;                           /// * vm.IP = 0 stops the VM
     return Ret{ 0, sp, PASS };        /// * ip==0 ends the trampoline
 #else  // E4_TRAMP
     // Commit current register window variables back to permanent storage on exit
@@ -217,7 +275,44 @@ XT_RET doSTOP(XT_ARGS) {
     return NULL;
 #endif // E4_TRAMP
 }
-static IU gStop[] = { TOK(doSTOP) };  ///< tempoline sentinal
+IU gStop[] = { TOK(doSTOP) };         ///< tempoline sentinal
+
+#if DO_MULTITASK
+XT_RET doPAUSE(XT_ARGS) {
+#if E4_TRAMP
+    IP = ip;                          /// run() must not clobber IP (see below)
+    return Ret{ 0, sp, PASS };
+#else // !E4_TRAMP
+    SPILL();  IP = ip;                /// state stays NEST
+    return NULL;
+#endif // E4_TRAMP
+}
+
+#define SYNC(g)                                            \
+    SPILL();                                               \
+    { g; }                                                 \
+    RELOAD()
+
+#if USE_PTHREAD
+#define WAIT_FOR(cond) while(!(cond)) delay(1)
+
+#else // !USE_PTHREAD
+#define WAIT_FOR(cond) while(!(cond)) {                    \
+    if (vm.id) {                                           \
+        ip--; return doPAUSE(XT_PASS);                     \
+    }  /* task: retry this word next turn */               \
+    SPILL();                                               \
+    bool ran = task_pause();                               \
+    RELOAD();                                              \
+    if (!ran) yield();                                     \
+}
+#endif // USE_PTHREAD
+
+#else  // DO_MULTITASK
+#define SYNC(g)     { g; }
+#define WAIT_FOR(cond)
+
+#endif // DO_MULTITASK
 
 #define UNNEST()     {                                     \
         if (RDEPTH <= 0) return doSTOP(XT_PASS);           \
@@ -238,15 +333,6 @@ static void run(XT_ARGS) {
     o.sp[-1] = o.tos;
 }
 #endif // (E4_TRAMP && XT0_U32)
-
-XT_RET doPAUSE(XT_ARGS) {
-    SPILL();                         /// Flush local C register to memory
-    IP = ip;                         /// Point to next IP after resume
-
-    vm.state = HOLD;
-
-    return Ret{ 0, sp, PASS };
-}
 
 void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
     vm.state = NEST;
@@ -293,12 +379,7 @@ void CALL(VM &vm, const Code &c) {
         DU *rp  = RS + RP;
 #endif // E4_RTOP
 #if E4_TRAMP
-        Ret r = c.xt(XT_PASS);
-#if E4_RTOP
-        run(r.ip, r.sp, r.tos, r.rp, vm);
-#else  // E4_RTOP
-        run(r.ip, r.sp, r.tos, vm);
-#endif // E4_RTOP
+        run(vm, c.xt(XT_PASS));
 #else  // E4_TRAMP
         c.xt(XT_PASS);
 #endif // E4_TRAMP
@@ -339,7 +420,7 @@ constexpr Code g_rom[] = {
          ip = (IU*)((U8*)ip + ALIGN(bsz))),
     CODE("_create", PUSH(OFF(++ip)); ip++),
     CODE("_does>",
-         IU *t = (IU*)dict[-1]->xt;                  ///< memory pointer to pfa
+         IU *t = (IU*)dict[-1]->xt;                  ///< memory pointer to pfa 
          *(t+1) = TOK(ip);                           /// * encode does> body token, and bail
          UNNEST()),
     CODE("_next",
@@ -359,7 +440,6 @@ constexpr Code g_rom[] = {
          DU t = POP(); DU n = POP(); RPUSH(n); RPUSH(t)),
     CODE("_is",                                      /// runtime of compiled "is" ( addr tok -- )
          IU t = POPI(); ICELL(POPI()) = t),
-    CODE("_key", PUSH(key()); UNNEST()),
     ///
     /// @defgroup Stack ops
     /// @brief - opcode sequence can be changed below this line
@@ -445,7 +525,16 @@ constexpr Code g_rom[] = {
     CODE(".r",      IU w = POPI(); dotr(w, POP(), *BASE)),
     CODE("u.r",     IU w = POPI(); dotr(w, POP(), *BASE, true)),
     CODE("type",    POP(); pstr((const char*)MEM(POP()))),
-    IMMD("key",     if (vm.compile) add_xt("_key"); else PUSH(key())),
+    CODE("key",                                      /// ( -- c ), -1 at end of input
+         WAIT_FOR(io_rx_ready() || io_rx_eof());
+         PUSH(io_rx_get())),
+    CODE("key?", PUSH(io_rx_ready() ? -1 : 0)),      /// ( -- f )
+    IMMD("char",                                     /// ( -- c ), fetch input char
+         const char *w = WORD(); DU c = w[0];
+         if (vm.compile) {
+             add_xt("_lit"); add_du(c);
+         }
+         else PUSH(c)),
     CODE("emit",    dot(EMIT, POP())),
     CODE("space",   dot(SPCS, DU1)),
     CODE("spaces",  dot(SPCS, POP())),
@@ -540,7 +629,10 @@ constexpr Code g_rom[] = {
     /// @defgroup metacompiler
     /// @brief - dict is directly used, instead of shield by macros
     /// @{
-//    CODE("exec",   IU w = POP(); doLIST(vm, w)),   /// execute word
+    CODE("exec",
+         IU tok = TOK(MEM(POPI()));                  ///< colon word MEM[addr]
+         const Code *w = tok2code(tok);              ///< fetch user Code
+         CALL(vm, *w)),                              /// * execute word
     CODE("create",
          def_word(WORD());
          add_xt("vbran");                            /// bran + offset field
@@ -586,33 +678,49 @@ constexpr Code g_rom[] = {
          for (IU i = 0; i < n; i+=sizeof(DU)) add_du(DU0)),  /// zero padding
     CODE("th",    tos = nos + tos * sizeof(DU); FILL()),     /// w i -- w'
     /// @}
+#if DO_MULTITASK
     /// @defgroup Multitasking ops
     /// @{
-    CODE("pause", ip--; ip = (IU*)doPAUSE),                  /// Forces trampoline exit
-#if DO_MULTITASK
-    CODE("task",                                             /// w -- task_id
-         IU w = POPI();                                      ///< dictionary index
-         if (dict[w]->is_udf()) {
-             SPILL();
-             IU tid = task_create(dict[w]->pfa);             /// create a task starting on pfa
-             RELOAD();
-             PUSH(tid);
+    CODE("task",                                             /// ( addr -- tid ), addr from '
+         IU tok = TOK(MEM(POPI()));                          ///< colon word MEM[addr]
+         const Code *w = tok2code(tok);                      ///< fetch user Code
+         IU tid = 0;
+         if (w && w->is_udf()) tid = task_create(tok);       ///< task slot
+         else pstr("  ?colon word only\n");
+         PUSH(tid)),                                         /// 0 = pool full
+    CODE("start", IU t = POPI(); task_start(t)),             /// ( task_id -- )
+    CODE("state@",IU t = POPI(); PUSH((DU)task_state(t))),   /// ( task_id -- n )
+    CODE(".task", task_status()),                            /// ( -- ), print states
+#if USE_PTHREAD
+    CODE("pause", yield()),                                  /// take a breather
+    CODE("join",  IU t = POPI(); SYNC(vm.join(t))),          /// ( task_id -- )
+    CODE("stop", sp = SS; RRESET(); ip = gStop),             /// clear ss, rs, and stop
+    CODE("send",  IU t = POPI(); IU n = POPI(); SYNC(vm.send(t, n))),  /// ( v1 v2 .. vn n tid -- ) pass values onto task's stack
+    CODE("recv",  SYNC(vm.recv())),                          /// ( -- v1 v2 .. vn ) waiting for values passed by sender
+    CODE("bcast", IU n = POPI(); SYNC(vm.bcast(n))),         /// ( v1 v2 .. vn -- )
+    CODE("pull",                                             /// ( tid n -- v1 v2 .. vn )
+         IU t = POPI(); IU n = POPI(); SYNC(vm.pull(t, n))),        
+    CODE("lock",  vm.io_lock()),                             /// ( -- )
+    CODE("unlock",vm.io_unlock()),                           /// ( -- )
+    CODE("ms",    task_pause(POPI())),                       /// ( n -- )
+#else // USE_PTHREAD
+    CODE("pause",                                            /// ( -- )
+         if (vm.id) return doPAUSE(XT_PASS);
+         SYNC(task_pause())),
+    CODE("abort", sp = SS; RRESET(); ip = gStop),            /// clear ss, rs, and stop
+    CODE("ms",                                               /// ( n -- )
+         int n = (int)POPI();
+         if (vm.id) {                                        /// task: sleep without blocking the ring
+             vm.wake = (U32)millis() + (U32)n;
+             return doPAUSE(XT_PASS);                        /// ip is already past 'ms', resumes after it
          }
-         else pstr("  ?colon word only\n")),
-    CODE("start", IU t = POPI(); SPILL(); task_start(t); RELOAD()),                       /// ( task_id -- )
-    CODE("join",  IU t = POPI(); SPILL(); vm.join(t); RELOAD()),                          /// ( task_id -- )
-    CODE("lock",  vm.io_lock()),                             /// wait for IO semaphore
-    CODE("unlock",vm.io_unlock()),                           /// release IO semaphore
-    CODE("send",  IU t = POPI(); IU n = POPI(); SPILL(); vm.send(t, n); RELOAD()),        /// ( v1 v2 .. vn n tid -- ) pass values onto task's stack
-    CODE("recv",  SPILL(); vm.recv(); RELOAD()),                                /// ( -- v1 v2 .. vn ) waiting for values passed by sender
-    CODE("bcast", IU n = POPI(); SPILL(); vm.bcast(n); RELOAD()),                         /// ( v1 v2 .. vn -- )
-    CODE("pull",  IU t = POPI(); IU n = POPI(); SPILL(); vm.pull(t, n); RELOAD()),        /// ( tid n -- v1 v2 .. vn )
-    /// @}
+         SYNC(task_pause(n))),                               /// shell: drive the ring for n ms
+#endif // USE_PTHREAD
+    CODE("ms",    delay(POPI())),                            /// ( n -- )
 #endif // DO_MULTITASK
     /// @defgroup Debug ops
     /// @{
-    CODE("rank",  PUSH(vm.id)),                              /// ( -- n ) thread id
-    CODE("abort", sp = SS; RRESET(); ip = gStop),            /// clear ss, rs, and stop
+    CODE("rank",  PUSH(vm.id)),                              /// ( -- n ) vm/thread id
     CODE("here",  PUSH(HERE)),                               /// offset of pmem top
     IMMD("'",     const Code *w = find(WORD());
          if (w) PUSH(w->is_udf() ? (DU)OFF(w->pfa) : (DU)TOK(w->xt))),   /// udf: body offset, prim: code token
@@ -646,15 +754,14 @@ constexpr Code g_rom[] = {
     /// @defgroup OS ops
     /// @{
     IMMD("include",                                         /// include an OS file
-         const char *f = WORD(); SPILL(); load(vm, f); RELOAD()),
+         const char *f = WORD(); SYNC(load(vm, f))),  
     CODE("included",                                        /// include file spec on stack
          POP();                                             /// string length, not used
          const char *f = (const char*)MEM(POP());
-         SPILL(); load(vm, f); RELOAD()),                   /// include external file
+         SYNC(load(vm, f))),                                /// include external file
     CODE("ok",    mem_stat()),
     CODE("clock", PUSH(millis())),
     CODE("rnd",   PUSH(RND())),                             /// generate random number
-    CODE("ms",    delay(POPI())),
     CODE("bye",   vm.state=STOP),
     /// @}
     CODE("boot",  dict.clear(); pmem.clear()),
@@ -671,7 +778,7 @@ void dict_compile() {                          ///< compile built-in words into 
 #if __SIZEOF_POINTER__ == 8
     // 1. Grab the full 64-bit runtime address of your first primitive lambda
     U64 base = (U64)(g_rom[0].xt);
-
+    
     // 2. Isolate the top 32 bits (the memory page segment)
     // Mask out the lower 32 bits so it's ready for a lightning-fast bitwise OR
 #if XT0_U32
@@ -679,7 +786,7 @@ void dict_compile() {                          ///< compile built-in words into 
 #else
     Code::XT0 = base & XT0_MSK;
 #endif
-
+    
     // 3. Safety Verification
     // Ensure ALL primitives reside within this exact same 4GB segment boundary page
     ///  pmem and the stop cell must share the segment too, or tokens can't be expanded back
@@ -689,7 +796,7 @@ void dict_compile() {                          ///< compile built-in words into 
         ERR("pmem/gStop not in the same 4GB segment as code (use -no-pie, or allocate pmem low)!");
         exit(1);
     }
-#endif // __SIZEOF_POINTER__ == 8
+#endif // __SIZEOF_POINTER__ == 8 
 }
 
 void dict_validate() {
@@ -702,7 +809,7 @@ void dict_validate() {
     if ((UFP)doSTOP > max) max = (UFP)doSTOP;
     U64 off = max - Code::XT0;
 
-    LOG("XT0: 0x%zx, OFF: 0x%llx\n", Code::XT0, off);
+    LOG("XT0: 0x%zx, OFF: 0x%zx\n", Code::XT0, off);
     if (off > 0xFFFFFFFFULL)
         ERR("Execution memory space exceeds 32-bit offset limits!");
 }
@@ -732,7 +839,7 @@ DU2 parse_number(const char *idiom, int base, int *err) {
 
 void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
     DEBUG("forth_core(%s) ", idiom);
-
+    
     vm.state = QUERY;
     const Code *w = find(idiom);                 ///> * get token by searching through dict
 
@@ -799,9 +906,9 @@ void forth_teardown() {
     t_pool_stop();
 }
 
-int forth_vm(int tid, const char *line, void(*hook)(int, const char*)) {
-    VM &vm = vm_get(tid);
-    fout_setup(hook); // Setup serial/callback hookup
+int forth_vm(const char *line, void(*hook)(int, const char*)) {
+    VM &vm = vm_get(0);                                     ///< get main thread
+    fout_setup(hook);
 
     // 🔄 COOPERATIVE RESUME RESCUE:
     // Only refresh the global input pointer (tib) if we are executing a brand new command chain.
@@ -810,7 +917,7 @@ int forth_vm(int tid, const char *line, void(*hook)(int, const char*)) {
         fin_setup(line); // This sets tib = line and clears obuf
         vm.state = QUERY;
     }
-
+    
     char idiom[E4_IBUF_SZ];
     if (vm.state == NEST) {
         nest(vm); // Resume colon word execution chain
@@ -822,5 +929,7 @@ int forth_vm(int tid, const char *line, void(*hook)(int, const char*)) {
             if (vm.state == HOLD || vm.state == STOP) break;
         }
     }
-    return vm.state == STOP;
+    if (!vm.compile) ss_dump(vm);
+    
+    return vm.state==STOP;
 }
