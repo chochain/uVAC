@@ -16,16 +16,54 @@ void uvar_init() {
 }
 
 #else // DO_MULTITASK
+///
+///> VM::reset shared by PTHREAD and Cooperative
+///
+extern IU gStop[];
 List<VM, E4_VM_POOL_SZ> _vm;       ///< VM pool
-///
-///> VM pool
-///
-VM& vm_get(int id) {
-    return _vm[(id >= 0 && id < E4_VM_POOL_SZ) ? id : 0];
+
+void VM::reset(IU cfa, vm_state st) { 
+    IU stop_ip = Code::Token(gStop);
+    rs.idx     = ss.idx = 0;
+    rs.push((DU)stop_ip);
+    ip         = (IU*)(Code::XT0 | (UFP)(cfa));
+    state      = st;
+    compile    = false;
+    wake       = 0;
+    *(MEM0 + base) = 10;           /// * default radix = 10
+
+    DEBUG("reset cfa=%x ip=%p\n", cfa, ip);
 }
 
-extern void add_du(DU v);          ///< add data unit to pmem
-extern void nest(VM &vm);          ///< Forth inner loop
+int task_state(int tid) {
+    return vm_get(tid).state;
+}
+
+void task_status() {
+    printf("task state=");
+    for (int i=0; i<E4_VM_POOL_SZ; i++) {
+        printf("%d ", _vm[i].state);
+    }
+    printf("\n");
+}
+
+#if USE_PTHREAD
+#include <mutex>
+typedef  thread             THREAD;
+#define  GUARD(m)           lock_guard<mutex>  _grd_(m)
+#define  XLOCK(m)           unique_lock<mutex> _xlck_(m)   /** exclusive lock     */
+#define  WAIT(cv,g)         (cv).wait(_xlck_, g)           /** wait for condition */
+#define  NOTIFY(cv)         (cv).notify_one()              /** wake up one task   */
+#define  NOTIFY_ALL(cv)     (cv).notify_all();
+
+#ifdef _POSIX_VERSION
+#include <sched.h>                 /// CPU affinity
+#endif // _POSIX_VERSION
+
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE                /** Emscripten needs this */
+#endif
+
 ///
 ///> VM messaging and IO control variables
 ///
@@ -35,6 +73,12 @@ MUTEX    VM::tsk;
 MUTEX    VM::io;
 COND_VAR VM::cv_tsk;
 COND_VAR VM::cv_io;
+///
+///> VM pool
+///
+VM& vm_get(int id) {
+    return _vm[(id >= 0 && id < E4_VM_POOL_SZ) ? id : 0];
+}
 
 ///============================================================
 ///
@@ -62,7 +106,6 @@ void _event_loop(int rank) {
             NOTIFY(_cv_evt);                      /// * notify one
         }
         VM_LOG(vm, ">> started on T%d", rank);
-        vm->rs.push(DU0);                         /// exit token
         nest(*vm);
         VM_LOG(vm, ">> finished on T%d", rank);
 
@@ -151,6 +194,12 @@ void task_start(int tid) {
     _que.push(&vm);                              /// create event
     NOTIFY(_cv_evt);
 }
+
+bool task_pause(int ms) {
+    delay(ms);
+    return false;
+}
+
 ///==================================================================
 ///
 ///> VM methods
@@ -165,26 +214,7 @@ void VM::join(int tid) {
     }
     VM_LOG(this, ">> VM%d joint", vm.id);
 }
-///
-///> hard copying data stacks, behaves like a message queue
-///
-void VM::_ss_dup(VM &dst, VM &src, int n) {
-    dst.ss.push(dst.tos);            /// * push dest TOS
-    dst.tos = src.tos;               /// * set dest TOS
-    src.tos = src.ss[-n];            /// * set src TOS
-    for (int i = n - 1; i > 0; --i) {
-        dst.ss.push(src.ss[-i]);     /// * passing stack elements
-    }
-    src.ss.idx -= n;                 /// * pop src by n items
-}
-void VM::reset(IU cfa, vm_state st) {
-    rs.idx     = ss.idx = 0;
-    ip         = cfa;
-    tos        = -DU1;
-    state      = st;
-    compile    = false;
-    *(MEM0 + base) = 10;             /// * default radix = 10
-}
+
 void VM::stop() {
     GUARD(tsk);
     state = STOP;
@@ -202,7 +232,7 @@ void VM::send(int tid, int n) {      ///< ( v1 v2 .. vn -- )
     if (_quit) return;               /// * nothing to do, bail
 
     VM_LOG(&vm, ">> sending %d items to VM%d.%d", n, tid, vm.state);
-    _ss_dup(vm, *this, n);           /// * pass n params as a msg queue
+    vm.ss.merge(this->ss);           /// * pass n params as a msg queue
     vm.state = NEST;                 /// * unblock target task
 
     NOTIFY(cv_tsk);
@@ -243,7 +273,7 @@ void VM::pull(int tid, int n) {
     WAIT(cv_tsk, [vm]{ return vm.state==STOP || _quit; });
     
     if (!_quit) {
-        _ss_dup(*this, vm, n);       /// * retrieve from completed task
+        this->ss.merge(vm.ss);       /// * retrieve from completed task
         printf(">> pulled %d items from VM%d.%d\n", n, vm.id, vm.state);
     }
     
@@ -267,4 +297,5 @@ void VM::io_unlock() {
     io_busy = false;                 /// * unlock
     NOTIFY(cv_io);
 }
+#endif // USE_PTHREAD
 #endif // DO_MULTITASK
