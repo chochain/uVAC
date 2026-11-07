@@ -7,6 +7,59 @@
 #include <cstdarg>                            /// va_list, va_start, va_end
 #include "ceforth.h"
 
+#if !(ARDUINO || ESP32) && !defined(_WIN32) && !defined(_WIN64)
+#include <poll.h>                             /// poll
+#include <unistd.h>                           /// read
+#endif // !(ARDUINO || ESP32) && !defined(_WIN32) && !defined(_WIN64)
+///
+///> Console input/output primitives (platform dependent)
+///
+///  io_rx_ready()  a byte can be read now (never blocks)
+///  io_rx_get()    next byte, or -1 if none (never blocks on POSIX/Arduino)
+///  io_rx_eof()    input has ended (Ctrl-D, closed pipe); always false on a device
+///  io_tx_free()   bytes that can be written without waiting
+///
+#if (ARDUINO || ESP32)
+bool io_rx_ready()  { return Serial.available() > 0; }
+int  io_rx_get()    { return Serial.read(); }
+bool io_rx_eof()    { return false; }
+int  io_tx_free()   { return Serial.availableForWrite(); }
+
+#elif defined(_WIN32) || defined(_WIN64)      // no poll(): main.cpp falls back to blocking getline
+bool io_rx_ready()  { /* select() on fd 0, zero timeout */ return false; }
+int  io_rx_get()    { return getchar(); }
+bool io_rx_eof()    { return false; }
+int  io_tx_free()   { return 1 << 20; }
+
+#else // POSIX desktop: (poll fd 0 directly, no stdio buffering)
+#if USE_PTHREAD
+#include <mutex>
+static mutex _rx_mtx;
+#define IO_GUARD    lock_guard<mutex> _grd_(_rx_mtx)
+#else // !USE_PTHREAD
+#define IO_GUARD
+#endif // USE_PTHREAD
+
+static int   _rx  = -1;                       ///< one-byte lookahead
+static bool  _eof = false;                    ///< end of input seen
+static bool _io_rx_ready() {                  ///< locked internal
+    if (_rx >= 0) return true;
+    if (_eof)     return false;
+    struct pollfd p = { 0, POLLIN, 0 };
+    if (poll(&p, 1, 0) <= 0) return false;    /// * nothing waiting
+    unsigned char c;
+    ssize_t r = read(0, &c, 1);
+    if (r == 0) _eof = true;                  /// * Ctrl-D or end of pipe
+    if (r != 1) return false;
+    _rx = c;
+    return true;
+}
+bool io_rx_ready()  { IO_GUARD; return _io_rx_ready(); }
+int  io_rx_get()    { IO_GUARD; if (!_io_rx_ready()) return -1; int c = _rx; _rx = -1; return c; }
+bool io_rx_eof()    { IO_GUARD; return _eof; }
+int  io_tx_free()   { return 1 << 20; }       /// * stdout never blocks us
+#endif // (ARDUINO || ESP32)
+
 // ==================== STREAM REPLACEMENTS ====================
 static const char *tib = nullptr;             ///< Replaces istringstream (Tracks remaining input)
 static char *tob = nullptr;                   ///< Cursor for continuous appending
@@ -20,7 +73,9 @@ static void fout_flush(char post='\0') {
     
     if (post) *tob++ = post;
     *tob = '\0';                              /// Null-terminate
-    if (fout_cb) fout_cb(strlen(obuf), obuf); /// callback
+    int n = strlen(obuf);                     ///< output buf length
+    while (io_tx_free() < n) yield();         /// wait for UART drains
+    if (fout_cb) fout_cb(n, obuf);            /// callback
     tob = obuf;                               /// Reset pointer position
 }
 
@@ -83,6 +138,22 @@ void fout_setup(void (*hook)(int, const char*)) {
     auto cb = [](int, const char *rst) { printf("%s", rst); };
     fout_cb = hook ? hook : cb;           ///< serial output hook up
 }
+///
+///> one scheduling round for the host loop, called when no input is waiting
+///  Cooperative tasker only (DO_MULTITASK && !USE_PTHREAD); otherwise a no-op.
+///  @return false if any task ran
+///
+bool handle_idle() {
+#if DO_MULTITASK && !USE_PTHREAD
+    if (!tob) return false;              /// * before the first line no task can exist
+    tib = nullptr;                       /// * the last line's buffer is gone; tasks must not parse it
+    bool ran = task_pause();             /// * each NEST task runs to its next pause or end
+    fout_flush();                        /// * their output goes out now, not on the next line
+    return ran;
+#else  // (DO_MULTITASK && !USE_PTHREAD)
+    return false;
+#endif // (DO_MULTITASK && !USE_PTHREAD)
+}
 
 const char *scan(char c, char *buf, int max) {
     if (!tib || *tib == '\0') { buf[0] = '\0'; return buf; }
@@ -125,7 +196,6 @@ const char *word(char *buf, int max) {    ///< get next idiom
     return buf;
 }
 
-char key() { static char c; return word(&c, 1)[0]; }
 void spaces(int n) { for (int i = 0; i < n; i++) fout(" "); }
 void dot(io_op op, DU v, int base) {
     switch (op) {
@@ -178,12 +248,12 @@ void pstr(const char *str, io_op op) {
 #define OFF(p)  ((IU)((const U8*)(p) - MEM0))              /**< address => offset in pmem       */
 #define TOK(p)  (Code::Token((void*)(p)))
 
-static const Code *tok2code(IU tok) {                      ///< reverse lookup a primitive
-    for (int i = 0; i < g_romsz; i++) {
-        if (TOK(g_rom[i].xt) == tok) return &g_rom[i];
-    }
-    for (int i = dict.idx - 1; i >= 0; --i) {
+const Code *tok2code(IU tok) {                               ///< reverse lookup, same order as find()
+    for (int i = dict.idx - 1; i >= 0; --i) {                /// * user words first, newest first
         if (TOK(dict[i]->xt) == tok) return dict[i];
+    }
+    for (int i = g_romsz - 1; i > 0; --i) {                 /// * then built-ins, skipping dict[0] "nop"
+        if (TOK(g_rom[i].xt) == tok) return &g_rom[i];
     }
     return nullptr;
 }
@@ -310,12 +380,12 @@ void words() {
 static int load_dp = 0;
 void load(VM &vm, const char* fn) {
     load_dp++;                           /// * increment depth counter
-    RS.push(*IP);                        /// * save context
+    RS.push(*vm.ip);                     /// * save context
     RS.push(vm.state);
     vm.state = NEST;                     /// * +recursive
     forth_include(fn);                   /// * include file
     vm.state = static_cast<vm_state>(RS.pop());
-    *IP = UINT(RS.pop());                /// * context restored
+    *vm.ip   = UINT(RS.pop());           /// * context restored
     --load_dp;                           /// * decrement depth counter
 }
 
@@ -326,10 +396,8 @@ void ss_dump(VM &vm, bool forced) {
         char tmp[66];
         fout("%s ", _format(SS[i], *MEM(vm.base), tmp, sizeof(tmp), 0));
     }
-    fout("ok\n");
     fout_flush();
 }
-
 void mem_dump(U32 p0, IU sz, int base) {
     auto spc = [](int j) { return j % 4 == 3 ? " " : ""; };
     for (IU i=p0 & ~15; i<=(p0+sz); i+=16) {
@@ -344,6 +412,7 @@ void mem_dump(U32 p0, IU sz, int base) {
             fout(" %c%s", ((c==0x7f||c<0x20) ? '.' : c), spc(j));
         }
         fout_flush('\n');
+        yield();
     }
 }
 
