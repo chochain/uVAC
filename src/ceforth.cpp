@@ -257,7 +257,11 @@ void s_quote(XT_REFS, bool dotq=false) {
 ///          * 32-bit Param ref       Ir/Dr = 3.1M/0.8M (843ms)
 ///
 XT_RET doSTOP(XT_ARGS) {
+#if DO_MULTITASK && !USE_PTHREAD
+    if (vm.id) vm.state = vm.sess ? QUERY : STOP;  /// * session shell stays; plain task frees its slot
+#else
     if (vm.id) vm.state = STOP;       /// * finish task, free slot
+#endif
 #if E4_TRAMP
     IP = 0;                           /// * vm.IP = 0 stops the VM
     return Ret{ 0, sp, PASS };        /// * ip==0 ends the trampoline
@@ -857,6 +861,13 @@ void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
         pstr(idiom); pstr("? ", CR);     ///> display error prompt
         pstr(strerror(errno), CR);       ///> and error description
         vm.compile = false;              ///> reset to interpreter mode
+#if DO_MULTITASK && !USE_PTHREAD
+        if (vm.sess) {                   /// * session: keep the slot, just drop the line
+            fin_drop();
+            vm.state = QUERY;
+            return;
+        }
+#endif
         vm.state   = STOP;               ///> skip the entire input buffer
         return;
     }
@@ -906,7 +917,12 @@ void forth_teardown() {
     t_pool_stop();
 }
 
+#if DO_MULTITASK && !USE_PTHREAD
+extern int g_compiler;                                      ///< tid that has an open ':' definition, -1 = none
+extern int g_cur;                                           ///< tid of the running slice
+#endif
 int forth_vm(const char *line, void(*hook)(int, const char*)) {
+    FORTH_LOCK();                                           /// * sessions share the engine
     VM &vm = vm_get(0);                                     ///< get main thread
     fout_setup(hook);
 
@@ -930,6 +946,78 @@ int forth_vm(const char *line, void(*hook)(int, const char*)) {
         }
     }
     if (!vm.compile) ss_dump(vm);
-    
-    return vm.state==STOP;
+#if DO_MULTITASK && !USE_PTHREAD
+    g_compiler = vm.compile ? 0 : -1;                       /// * shell owns the compiler while ':' is open
+#endif
+    int rc = vm.state==STOP;
+    FORTH_UNLOCK();
+    return rc;
 }
+
+#if DO_MULTITASK && !USE_PTHREAD
+///====================================================================
+///
+///> Web session = task. One slice of a session's input line.
+///
+///  The session VM is a shell (like VM 0) that owns a private input line.
+///  A slice runs until the line is consumed, or the VM pauses/sleeps, then
+///  parks its input cursor and returns, so other sessions get the engine.
+///
+///  @return RUN_DONE  line consumed (stack printed)
+///          RUN_MORE  paused, runnable now          => call again with line=NULL
+///          RUN_WAIT  sleeping (ms), not due yet    => call again later
+///          RUN_BUSY  engine/compiler taken          => call again, SAME arguments
+///          RUN_GONE  session closed or aborted      => drop it
+///
+static inline bool due(const VM &v) { return !v.wake || (S32)(millis() - v.wake) >= 0; }
+
+int forth_run(int tid, uint32_t sid, const char *line, void (*hook)(int, const char*)) {
+    if (tid <= 0)       return RUN_GONE;
+    if (!forth_lock(0)) return RUN_BUSY;                    /// * never block a dispatcher worker
+    VM &vm = vm_get(tid);
+    if (!vm.sess || vm.sid != sid) {                        /// * stale msg: closed, or slot reused
+        forth_unlock(); return RUN_GONE;
+    }
+    if (g_compiler >= 0 && g_compiler != tid) {             /// * someone else has an open ':' definition
+        forth_unlock(); return RUN_BUSY;
+    }
+    
+    fout_setup(hook);
+    if (line) {
+        free(vm.tbuf);
+        vm.tbuf  = strdup(line);                            /// * msg buffers die; keep our own copy
+        vm.tib   = vm.tbuf;
+        vm.fb    = 0;
+        vm.state = QUERY;
+    }
+    g_cur = tid;
+    io_attach(vm);
+
+    int  rc = RUN_DONE;
+    char idiom[E4_IBUF_SZ];
+    for (;;) {
+        if (vm.wake) {
+            if (!due(vm)) { rc = RUN_WAIT; break; }         /// * still sleeping
+            vm.wake = 0;
+        }
+        if (vm.state == NEST) {
+            nest(vm);                                       /// * resume the word that paused
+        }
+        else {
+            if (!fetch(idiom, E4_IBUF_SZ)) break;           /// * line consumed
+            forth_core(vm, idiom);
+        }
+        if (vm.state == NEST || vm.wake) { rc = RUN_MORE; break; }
+    }
+    if (rc == RUN_DONE && !vm.compile) ss_dump(vm);
+    
+    g_compiler = vm.compile ? tid : -1;
+    io_detach(vm);                                          /// * park tib, flush output
+
+    if (rc == RUN_DONE) vm.tib = nullptr;
+    g_cur = 0;
+
+    forth_unlock();
+    return rc;
+}
+#endif // DO_MULTITASK && !USE_PTHREAD
