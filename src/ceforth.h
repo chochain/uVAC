@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdint.h>     // uintxx_t
 #include "config.h"     // configuation and cross-platform support
+#include "forth_api.h"  // web session management for cooperative multitasking
+
 #ifndef XT0_U32
   #if __SIZEOF_POINTER__ == 8
   #define XT0_U32  0      /** 64-bit: build with -DXT0_U32=1 -no-pie to fold XT0 */
@@ -43,18 +45,18 @@ struct List {
         clear(ro);
         if (raw) delete[] raw;                       ///< free container
     }              
-    List &operator=(T *a) INLINE {
+    List &operator=(T *a) _INLINE_ {
         if (raw) delete[] raw;
         v = a; raw = 0; return *this;                ///< raw = 0 (non-owning)
     }
-    T    &operator[](int i) INLINE { return i < 0 ? v[idx + i] : v[i]; }
+    T    &operator[](int i) _INLINE_ { return i < 0 ? v[idx + i] : v[i]; }
     void readonly_below(int i) { ro = i; }
 
-    T pop()     INLINE { return v[--idx]; }
-    T push(T t) INLINE { return v[idx++] = t; }      ///< deep copy element
+    T pop()     _INLINE_ { return v[--idx]; }
+    T push(T t) _INLINE_ { return v[idx++] = t; }      ///< deep copy element
     
-    void push(T *a, int n) INLINE { for (int i=0; i<n; i++) push(*(a+i)); }
-    void merge(List& a)    INLINE { for (int i=0; i<a.idx; i++) push(a[i]); }
+    void push(T *a, int n) _INLINE_ { for (int i=0; i<n; i++) push(*(a+i)); }
+    void merge(List& a)    _INLINE_ { for (int i=0; i<a.idx; i++) push(a[i]); }
     void clear(int tgt = 0) {
         int mx = (tgt > ro) ? tgt : ro;
         if constexpr (std::is_pointer<T>::value) {
@@ -89,14 +91,6 @@ struct ALIGNAS VM {
 
 #if DO_MULTITASK
     int      wake    = 0;          ///< ms timestamp to wake at (0 = not sleeping)
-#if !USE_PTHREAD
-    bool        sess  = false;     ///< true: web-session shell (owns a text line, not just a word)
-    uint32_t    sid   = 0;         ///< owning session id (0 = none)
-    uint32_t    fb    = 0;         ///< output chunks sent for the current line
-    const char *tib   = nullptr;   ///< input cursor, parked here while swapped out
-    char       *tbuf  = nullptr;   ///< owned copy of the current line
-#endif // !USE_PTHREAD
-    
     void reset(IU ip, vm_state st);///< reset a VM user variables
     
 #if USE_PTHREAD
@@ -123,7 +117,15 @@ struct ALIGNAS VM {
     ///
     void io_lock();                ///< lock IO
     void io_unlock();              ///< unlock IO
-#endif // USER_PTHREAD    
+    
+#else // !USE_PTHREAD
+    IU          sid     = 0;       ///< owning session id (0 = none)
+    int         fb      = 0;       ///< output chunks sent for the current line
+    bool        ses     = false;   ///< true: web-session shell (owns a text line, not just a word)
+    const char *tib     = NULL;    ///< input cursor, parked here while swapped out
+    char       *tbuf    = NULL;    ///< owned copy of the current line
+
+#endif // USER_PTHREAD
 #endif // DO_MULTITASK
 };
 ///@name data stack access macros
@@ -248,17 +250,17 @@ struct Code {
     U8 attr = 0;            ///< only 2 LSBs used (can steal from xt/pfa)
 
 #if __SIZEOF_POINTER__ == 8
-    static IU Token(void *fp) INLINE { return (IU)((UFP)fp & 0xFFFFFFFF); }
+    static IU Token(void *fp) _INLINE_ { return (IU)((UFP)fp & 0xFFFFFFFF); }
 #else
-    static IU Token(void *fp) INLINE { return (IU)((UFP)fp); }
+    static IU Token(void *fp) _INLINE_ { return (IU)((UFP)fp); }
 #endif
     ///
     ///> constructors for built-in, and colon words
     ///
     constexpr Code(const char *n, FPTR f, U8 a=0) : name(n), xt(f), attr(a) {}        ///< built-in
-    bool is_imm() const INLINE { return attr & IMM_ATTR;    }
-    bool is_udf() const INLINE { return attr & UDF_ATTR;    }
-    void imm()    INLINE { attr |= IMM_ATTR;          }
+    bool is_imm() const _INLINE_ { return attr & IMM_ATTR;    }
+    bool is_udf() const _INLINE_ { return attr & UDF_ATTR;    }
+    void imm()    _INLINE_ { attr |= IMM_ATTR;          }
 };
 ///@}
 ///@name Dictionary Compiler macros
@@ -293,10 +295,10 @@ extern       List<U8,    0>          pmem;
 
 #define CODE(n, g)                                              \
     rom_code(n, [](XT_ARGS)                                     \
-        INLINE -> XT_RET{ g; NEXT(); }, (U8)0)
+        _INLINE_ -> XT_RET{ g; NEXT(); }, (U8)0)
 #define IMMD(n, g)                                              \
     rom_code(n, [](XT_ARGS)                                     \
-        INLINE -> XT_RET{ g; NEXT(); }, (U8)IMM_ATTR)
+        _INLINE_ -> XT_RET{ g; NEXT(); }, (U8)IMM_ATTR)
 ///@}
 ///@name Multitasking support
 ///@{
@@ -304,36 +306,20 @@ VM&  vm_get(int id=0);                    ///< get a VM with given id
 void uvar_init();                         ///< setup user area
 
 #if DO_MULTITASK
-void t_pool_init();                       ///< initialize thread pool
-void t_pool_stop();                       ///< stop thread pool
+void vm_pool_init();                      ///< initialize thread pool
+void vm_pool_stop();                      ///< stop thread pool
+
 int  task_create(IU pfa);                 ///< create a VM starting on pfa
 void task_start(int tid);                 ///< start a task with given task/VM id
 int  task_state(int tid);                 ///< return the state of a task
 void task_status();
 bool task_pause(int ms=0);                ///< pause current task (returns if any task ran)
-#if !USE_PTHREAD
-///@name Web sessions as tasks (cooperative tasker)
-///@{
-enum { RUN_WAIT = 2, RUN_DONE = 1, RUN_MORE = 0, RUN_BUSY = -1, RUN_GONE = -2 };
-int  session_open(uint32_t sid);          ///< claim a VM slot as a session shell, 0 if pool full
-bool session_close(int tid);              ///< release the slot (waits for the engine lock)
-int  forth_run(int tid, uint32_t sid,     ///< one slice: line!=NULL starts a line, NULL resumes it
-               const char *line, void(*hook)(int, const char*)=nullptr);
-int  forth_cur();                         ///< tid of the slice now running (for output hooks)
-bool forth_lock(int ms);                  ///< engine lock (recursive), ms<0 = wait forever
-void forth_unlock();
-#define FORTH_LOCK()    forth_lock(-1)
-#define FORTH_UNLOCK()  forth_unlock()
-///@}
-#endif // !USE_PTHREAD
+
 #else   // DO_MULTITASK
-#define t_pool_init()
-#define t_pool_stop()
+#define vm_pool_init()
+#define vm_pool_stop()
+
 #endif // DO_MULTITASK
-#if !(DO_MULTITASK && !USE_PTHREAD)
-#define FORTH_LOCK()
-#define FORTH_UNLOCK()
-#endif
 ///@}
 ///@name System interface
 ///@{
