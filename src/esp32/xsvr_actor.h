@@ -124,7 +124,7 @@ private:
         
         SessionState &s = _ses[slot];
         
-        vm_get(s.tid).state = STOP;
+        session_close(s.tid);              /// * frees the Forth task slot
         if (s.fd >= 0 && s.hd && xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             httpd_socket_send(s.hd, s.fd, "0\r\n\r\n", 5, 0);
             xSemaphoreGive(_mutex);
@@ -138,8 +138,21 @@ private:
         s.hd        = nullptr;
     }
 
+    void reject(httpd_handle_t hd, int fd) {
+        static const char r[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        httpd_socket_send(hd, fd, r, sizeof(r) - 1, 0);
+    }
+
+    SemaphoreHandle_t _smtx;            // protects _ses[] (httpd thread + dispatcher workers)
+    struct Guard {
+        SemaphoreHandle_t m;
+        Guard(SemaphoreHandle_t m) : m(m) { xSemaphoreTakeRecursive(m, portMAX_DELAY); }
+        ~Guard() { xSemaphoreGiveRecursive(m); }
+    };
+
 public:
     ServerActor(uint32_t actor_id) : BaseActor(actor_id) {
+        _smtx  = xSemaphoreCreateRecursiveMutex();
         _mutex = xSemaphoreCreateBinary();
         xSemaphoreGive(_mutex);
     }
@@ -149,16 +162,20 @@ public:
     }
 
     void register_new_conn(uint32_t sid, int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
+        Guard g(_smtx);
         int slot = get_empty_slot();
         if (slot == -1) {
             LOG("[XS] Max session capacity %d hit! Rejecting request.\n", MAX_SESSIONS);
             heap_caps_free(psram_buf); // Release allocation payload block
+            reject(hd, fd);
             return;
         }
 
-        init tid = task_create(0);     ///< instantiate a TASK
-        if (tid < 0) {
-            LOG("[XS] No avialble forth TASK!\n", heap_caps_free(psrm_buf));
+        int tid = session_open(sid);   ///< the session IS a Forth task (VM slot)
+        if (tid <= 0) {
+            LOG("[XS] No available Forth task for session %u!\n", sid);
+            heap_caps_free(psram_buf);
+            reject(hd, fd);
             return;
         }
         
@@ -189,6 +206,7 @@ public:
     }
 
     void receive(const ActorMsg &msg) override {
+        Guard g(_smtx);                 // workers may deliver msgs of different sessions in parallel
         auto clean = [this](SessionState &s, const char *err) {
             if (s.mem_block != nullptr) {
                 heap_caps_free(s.mem_block);
