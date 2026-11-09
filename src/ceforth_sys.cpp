@@ -139,6 +139,25 @@ void fout_setup(void (*hook)(int, const char*)) {
     fout_cb = hook ? hook : cb;           ///< serial output hook up
 }
 ///
+///> per-VM input swap: tib/obuf stay global, the engine lock makes that safe
+///
+#if DO_MULTITASK && !USE_PTHREAD
+void io_attach(VM &vm) {
+    if (!tob) { obuf[0] = '\0'; tob = obuf; }
+    tib = vm.tib;
+}
+void io_detach(VM &vm) {
+    vm.tib = tib;
+    fout_flush();
+    tib = nullptr;
+}
+void fin_drop() { tib = nullptr; }
+#else  // DO_MULTITASK && !USE_PTHREAD
+void io_attach(VM &) {}
+void io_detach(VM &) {}
+void fin_drop() { tib = nullptr; }
+#endif // DO_MULTITASK && !USE_PTHREAD
+///
 ///> one scheduling round for the host loop, called when no input is waiting
 ///  Cooperative tasker only (DO_MULTITASK && !USE_PTHREAD); otherwise a no-op.
 ///  @return false if any task ran
@@ -146,9 +165,12 @@ void fout_setup(void (*hook)(int, const char*)) {
 bool handle_idle() {
 #if DO_MULTITASK && !USE_PTHREAD
     if (!tob) return false;              /// * before the first line no task can exist
+    if (!forth_lock(0)) return true;     /// * a session slice owns the engine: not idle
+    fout_setup(nullptr);                 /// * free-running tasks print to the serial console
     tib = nullptr;                       /// * the last line's buffer is gone; tasks must not parse it
     bool ran = task_pause();             /// * each NEST task runs to its next pause or end
     fout_flush();                        /// * their output goes out now, not on the next line
+    forth_unlock();
     return ran;
 #else  // (DO_MULTITASK && !USE_PTHREAD)
     return false;
