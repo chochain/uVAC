@@ -33,7 +33,8 @@ enum ActorMsgType {
     MSG_GUI_TEXT,             /// Forward string outputs straight to the LVGL terminal
     MSG_GUI_DRAW,             /// Forward string outputs straight to the LVGL terminal
     MSG_GUI_TOUCH,            /// Touch coordinate packets dispatched from Core 1 to Core 0
-    MSG_SYS_TELEMETRY         /// Periodic hardware memory metric tracking frame
+    MSG_SYS_TELEMETRY,        /// Periodic hardware memory metric tracking frame
+    MSG_FORTH_RESUME          /// Continue a session slice that paused or slept (no payload)
 };
 
 struct ActorMsg {
