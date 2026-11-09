@@ -23,10 +23,6 @@ const int   WIFI_PORT = 80;               ///< and the password
 
 ActorSystem Sys; // Global instantiation assignment
 
-uint32_t          ForthActor::_active_sid   = 0;
-std::atomic<bool> ForthActor::_abort(false);
-uint32_t          ForthActor::_feedback_cnt = 0;
-
 XServer       gWebServer(WIFI_SSID, WIFI_PASS, WIFI_PORT);
 ServerActor   gSvrActor(SERVER_ACTOR_ID);
 ForthActor    gForthActor(FORTH_ACTOR_ID);
