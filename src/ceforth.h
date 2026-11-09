@@ -88,7 +88,14 @@ struct ALIGNAS VM {
     bool     compile = false;      ///< compiler flag
 
 #if DO_MULTITASK
-    int      wake    = 0;          ///< ticks to wait (before wake up)
+    int      wake    = 0;          ///< ms timestamp to wake at (0 = not sleeping)
+#if !USE_PTHREAD
+    bool        sess  = false;     ///< true: web-session shell (owns a text line, not just a word)
+    uint32_t    sid   = 0;         ///< owning session id (0 = none)
+    uint32_t    fb    = 0;         ///< output chunks sent for the current line
+    const char *tib   = nullptr;   ///< input cursor, parked here while swapped out
+    char       *tbuf  = nullptr;   ///< owned copy of the current line
+#endif // !USE_PTHREAD
     
     void reset(IU ip, vm_state st);///< reset a VM user variables
     
@@ -304,10 +311,29 @@ void task_start(int tid);                 ///< start a task with given task/VM i
 int  task_state(int tid);                 ///< return the state of a task
 void task_status();
 bool task_pause(int ms=0);                ///< pause current task (returns if any task ran)
+#if !USE_PTHREAD
+///@name Web sessions as tasks (cooperative tasker)
+///@{
+enum { RUN_WAIT = 2, RUN_DONE = 1, RUN_MORE = 0, RUN_BUSY = -1, RUN_GONE = -2 };
+int  session_open(uint32_t sid);          ///< claim a VM slot as a session shell, 0 if pool full
+bool session_close(int tid);              ///< release the slot (waits for the engine lock)
+int  forth_run(int tid, uint32_t sid,     ///< one slice: line!=NULL starts a line, NULL resumes it
+               const char *line, void(*hook)(int, const char*)=nullptr);
+int  forth_cur();                         ///< tid of the slice now running (for output hooks)
+bool forth_lock(int ms);                  ///< engine lock (recursive), ms<0 = wait forever
+void forth_unlock();
+#define FORTH_LOCK()    forth_lock(-1)
+#define FORTH_UNLOCK()  forth_unlock()
+///@}
+#endif // !USE_PTHREAD
 #else   // DO_MULTITASK
 #define t_pool_init()
 #define t_pool_stop()
 #endif // DO_MULTITASK
+#if !(DO_MULTITASK && !USE_PTHREAD)
+#define FORTH_LOCK()
+#define FORTH_UNLOCK()
+#endif
 ///@}
 ///@name System interface
 ///@{
@@ -346,6 +372,9 @@ int  io_tx_free();
 
 void fin_setup(const char *line);
 void fout_setup(void (*hook)(int, const char*));
+void io_attach(VM &vm);                                  ///< swap a VM's input cursor in
+void io_detach(VM &vm);                                  ///< park it again, flush output
+void fin_drop();                                         ///< discard rest of current input line
 bool handle_idle();                                      ///< if Forth core idling
 
 const char *scan(char c, char *buf, int max=E4_PAD_SZ);  ///< scan input stream for a given char
