@@ -10,11 +10,7 @@
 #define CASE_SENSITIVE  1               /**< word case sensitive    */
 #define USE_FLOAT       0               /**< support floating point */
 #define DO_MULTITASK    1               /**< support multitasking   */
-#ifdef COOP
 #define USE_PTHREAD     0               /**< pthread or cooperative */
-#else  // !COOP
-#define USE_PTHREAD     1
-#endif // COOP
 ///@}
 ///@name Memory block configuation
 ///@{
@@ -162,7 +158,7 @@ typedef int32_t         DU;
 ///@{
 #include <cstring>
 #pragma GCC optimize("align-functions=4")    // we need fn alignment
-#define INLINE          __attribute__((always_inline))
+#define _INLINE_        __attribute__((always_inline))
 #define ALIGN2(sz)      ((sz) + (-(sz) & 0x1))
 #define ALIGN4(sz)      ((sz) + (-(sz) & 0x3))
 #define ALIGN16(sz)     ((sz) + (-(sz) & 0xf))
