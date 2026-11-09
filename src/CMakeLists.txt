@@ -6,6 +6,7 @@ set(SOURCES
     "ceforth.cpp"
     "ceforth_sys.cpp"
     "ceforth_task.cpp"
+    "ceforth_coop.cpp"
     "e4_run.S"
 )
 
@@ -22,6 +23,7 @@ idf_component_register(
 # We append your specialized performance flags below.
 target_compile_options(${COMPONENT_LIB} PRIVATE
   -Os
+  -DCOOP
   -DXT0_U32=1
   -DE4_TRAMP=1
   -DE4_RTOP=1
