@@ -4,6 +4,7 @@
 #pragma once
 
 #include "xactor.h"
+#include "../forth_api.h"
 ///
 /// Each web session owns a Forth task (VM slot, see session_open()).
 /// This actor only schedules slices: EXEC starts a line, RESUME continues one
@@ -25,30 +26,31 @@ private:
 
     /// Output hook, called from inside forth_run() (engine lock held).
     static void feedback(int len, const char *rst) {
-        VM &vm = vm_get(forth_cur());               ///< the session whose slice is running
-        if (!vm.sid) return;                        /// * closed or aborted: drop output
+        const uint32_t sid = forth_cur_sid();       ///< running session slice
+        const uint32_t tid = forth_cur_tid();
+        if (!sid) return;                           /// * closed or aborted: drop output
 
         BaseActor *gui = Sys.get_actor(GUI_ACTOR_ID);
 
         for (int off = 0; off < len; off += QUE_BUF_SZ - 1) {
             int sz = std::min(len - off, QUE_BUF_SZ - 1);
 
-            ActorMsg fb { MSG_FORTH_FEEDBACK, SERVER_ACTOR_ID, vm.sid, vm.id };
+            ActorMsg fb { MSG_FORTH_FEEDBACK, SERVER_ACTOR_ID, sid, tid };
             memcpy(fb.buf, rst + off, sz);
             fb.buf[sz] = '\0';
 
             int tries = FB_RETRY;
             while (!Sys.send(fb, 0)) {              /// queue full: let the other workers drain it
-                if (!vm.sid || --tries <= 0) {
-                    LOG("  [XF].%u output dropped (queue full)\n", (unsigned)vm.sid);
+                if (!forth_cur_sid() || --tries <= 0) {
+                    LOG("  [XF].%u output dropped (queue full)\n", sid);
                     return;                         /// not counted, so EOL handshake still balances
                 }
                 vTaskDelay(1);
             }
-            ++vm.fb;                                /// per session, per line
+            forth_fb_add();                         /// per session, per line
 
             if (!gui) continue;
-            ActorMsg g { MSG_GUI_TEXT, GUI_ACTOR_ID, vm.sid, vm.id };
+            ActorMsg g { MSG_GUI_TEXT, GUI_ACTOR_ID, sid, tid };
             memcpy(g.buf, rst + off, sz);
             g.buf[sz] = '\0';
             gui->receive(g);
@@ -60,14 +62,15 @@ public:
         LOG("VM> Forth Actor %u active on core[%d]\n", actor_id, xPortGetCoreID());
     }
 
-    void run(int tid, int sid, char *buf=nullptr) {
-        int rc  = forth_run(tid, sid, buf, feedback);
+    void handle_run(const ActorMsg &msg) {
+        int rc  = forth_run(
+            msg.tid, msg.sid, msg.type==MSG_FORTH_EXEC ? msg.buf : nullptr, feedback);
 
         switch (rc) {
         case RUN_DONE: {                        /// line finished
             ActorMsg eof { MSG_FORTH_EOL, SERVER_ACTOR_ID, msg.sid, msg.tid };
             eof.buf[0]        = '\0';
-            eof.feedback_sent = vm_get(msg.tid).fb;
+            eof.feedback_sent = forth_fb(msg.tid);
             if (!post(eof)) LOG("  [XF].%u EOL lost\n", msg.sid);
             break;
         }
@@ -84,18 +87,19 @@ public:
             if (!post(msg)) LOG("  [XF].%u retry lost\n", msg.sid);
             break;
         default: break;                         /// RUN_GONE: session was closed, nothing to report
+        }
     }
 
     void receive(const ActorMsg &msg) override {
         switch (msg.type) {
         case MSG_FORTH_EXEC:
             DEBUG("  [XF].%u << %s T%u\n", msg.sid, "EXEC", msg.tid);
-            run(msg.tid, msg.sid, msg.buf);
+            handle_run(msg);
             break;
             
         case MSG_FORTH_RESUME: {
             DEBUG("  [XF].%u << %s T%u\n", msg.sid, "RESUME", msg.tid);
-            run(msg.tid, msg.sid);
+            handle_run(msg);
             break;
         }
         case MSG_FORTH_EOL_ACK:
