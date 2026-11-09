@@ -3,6 +3,7 @@
 #define _XSVR_ACTOR_H
 
 #include "xactor.h"
+#include "../forth_api.h"
 
 #define REQ_TIMEOUT_MS 5000
 #define MAX_SESSIONS   8
