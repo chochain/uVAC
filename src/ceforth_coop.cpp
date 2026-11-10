@@ -24,7 +24,8 @@ static SemaphoreHandle_t _lock = nullptr;
 
 bool forth_lock(int ms) {
     if (!_lock) return true;           /// * before t_pool_init: single threaded
-    return xSemaphoreTakeRecursive(_lock, ms < 0 ? portMAX_DELAY : pdMS_TO_TICKS(ms)) == pdTRUE;
+    return xSemaphoreTakeRecursive(
+        _lock, ms < 0 ? portMAX_DELAY : pdMS_TO_TICKS(ms)) == pdTRUE;
 }
 void forth_unlock(bool vm0) {
     g_compiler = vm0 ? 0 : -1;         /// * shell owns the compiler while ':' is open
@@ -50,7 +51,9 @@ int      forth_fb(uint32_t tid) { return vm_get(tid).fb; }
 ///          RUN_BUSY  engine/compiler taken          => call again, SAME arguments
 ///          RUN_GONE  session closed or aborted      => drop it
 ///
-static inline bool due(const VM &v) { return !v.wake || (S32)(millis() - v.wake) >= 0; }
+static inline bool due(const VM &v) {
+    return !v.wake || (S32)(millis() - v.wake) >= 0;
+}
 
 int forth_run(
     uint32_t tid, uint32_t sid,
@@ -127,7 +130,8 @@ void uvar_init() {
 static int vm_slot_get(vm_state to) {        ///< returns slot (1..N-1) or 0 if full
     for (int i = E4_VM_POOL_SZ - 1; i > 0; i--) {
         int expect = STOP;
-        if (__atomic_compare_exchange_n((int*)&_vm[i].state, &expect, (int)to,
+        if (__atomic_compare_exchange_n(
+            (int*)&_vm[i].state, &expect, (int)to,
             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return i;
     }
     return 0;
@@ -141,7 +145,8 @@ int task_create(IU pfa) {                     ///< returns tid, or 0 if the pool
 }
 
 void task_start(int tid) {
-    if (tid > 0 && tid < E4_VM_POOL_SZ && _vm[tid].state == HOLD && !_vm[tid].ses) {
+    if (tid > 0 && tid < E4_VM_POOL_SZ &&
+        _vm[tid].state == HOLD && !_vm[tid].ses) {
         _vm[tid].state = NEST;                /// * now in the ring
     }
 }

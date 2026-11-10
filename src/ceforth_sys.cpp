@@ -418,6 +418,7 @@ void ss_dump(VM &vm, bool forced) {
         char tmp[66];
         fout("%s ", _format(SS[i], *MEM(vm.base), tmp, sizeof(tmp), 0));
     }
+    if (!forced) fout("ok\n");
     fout_flush();
 }
 void mem_dump(U32 p0, IU sz, int base) {

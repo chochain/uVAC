@@ -928,20 +928,20 @@ int forth_vm(const char *line, void(*hook)(int, const char*)) {
     VM &vm = vm_get(0);                                     ///< get main thread
     fout_setup(hook);
 
-    // 🔄 COOPERATIVE RESUME RESCUE:
-    // Only refresh the global input pointer (tib) if we are executing a brand new command chain.
-    // If vm.state is HOLD, we leave tib exactly where it was when it paused!
+    /// COOPERATIVE RESUME RESCUE:
+    /// Only refresh the global input pointer (tib) if we are executing a brand new command chain.
+    /// If vm.state is HOLD, we leave tib exactly where it was when it paused!
     if (vm.state == STOP || vm.state == QUERY) {
-        fin_setup(line); // This sets tib = line and clears obuf
+        fin_setup(line);                  /// This sets tib = line and clears obuf
         vm.state = QUERY;
     }
     
     char idiom[E4_IBUF_SZ];
     if (vm.state == NEST) {
-        nest(vm); // Resume colon word execution chain
+        nest(vm);                         /// Resume colon word execution chain
     }
     else {
-        // Continue parsing idioms right from the current tib position!
+        /// Continue parsing idioms right from the current tib position!
         while (fetch(idiom, E4_IBUF_SZ)) {
             forth_core(vm, idiom);
             if (vm.state == HOLD || vm.state == STOP) break;
