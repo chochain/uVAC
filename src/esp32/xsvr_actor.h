@@ -126,7 +126,7 @@ private:
         dispatch_next_line(slot);
     }
     
-    void finish_slot(int slot) {
+    void finish_slot(int slot, bool abort=false) {
         if (slot < 0 || !_ses[slot].is_active) return;
         
         SessionState &s = _ses[slot];
@@ -169,13 +169,10 @@ public:
         if (_mutex) vSemaphoreDelete(_mutex);
     }
 
-    void register_new_conn(uint32_t key, uint32_t sid, int fd, httpd_handle_t hd,
-                           char* psram_buf, size_t len) {
-        Guard g(_smtx);
-        /* ...rest unchanged... */
-    }
     void register_new_conn(
-        uint32_t sid, int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
+        uint32_t key, uint32_t sid,
+        int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
+        Guard g(_smtx);
         int slot = get_empty_slot();
         if (slot == -1) { /* unchanged: log, free, reject, return */ }
 
