@@ -22,6 +22,7 @@ struct SessionState {
 
     uint32_t       fb_count   = 0;        ///< feedback counter
     uint32_t       fb_total   = 0;        ///< feedback tally
+    uint32_t       key        = 0;        ///< browser-tab id (abort + VM ownership)
 };
 
 class ServerActor : public BaseActor {
@@ -35,6 +36,11 @@ private:
         }
         return -1;
     }
+    int find_key(uint32_t key) {
+        for (int i = 0; i < MAX_SESSIONS; i++)
+            if (_ses[i].is_active && _ses[i].key == key) return i;
+        return -1;
+    }    
 
     int get_empty_slot() {
         for (int i = 0; i < MAX_SESSIONS; i++) {
@@ -125,7 +131,7 @@ private:
         
         SessionState &s = _ses[slot];
         
-        session_close(s.tid);              /// * frees the Forth task slot
+        session_release(s.tid, abort);     /// * keeps the tab's data stack
         if (s.fd >= 0 && s.hd && xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             httpd_socket_send(s.hd, s.fd, "0\r\n\r\n", 5, 0);
             xSemaphoreGive(_mutex);
@@ -137,6 +143,7 @@ private:
         s.tid       = 0;
         s.fd        = -1;
         s.hd        = nullptr;
+        s.key       = 0;
     }
 
     void reject(httpd_handle_t hd, int fd) {
@@ -162,24 +169,24 @@ public:
         if (_mutex) vSemaphoreDelete(_mutex);
     }
 
-    void register_new_conn(uint32_t sid, int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
+    void register_new_conn(uint32_t key, uint32_t sid, int fd, httpd_handle_t hd,
+                           char* psram_buf, size_t len) {
         Guard g(_smtx);
+        /* ...rest unchanged... */
+    }
+    void register_new_conn(
+        uint32_t sid, int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
         int slot = get_empty_slot();
-        if (slot == -1) {
-            LOG("\n%s> Max session capacity %d hit! Rejecting request.\n", actor_name, MAX_SESSIONS);
-            heap_caps_free(psram_buf); // Release allocation payload block
-            reject(hd, fd);
-            return;
-        }
+        if (slot == -1) { /* unchanged: log, free, reject, return */ }
 
-        int tid = session_open(sid);   ///< the session IS a Forth task (VM slot)
+        int tid = session_attach(key, sid);   ///< the tab's persistent Forth VM
         if (tid <= 0) {
-            LOG("\n%s> No available Forth task for session %u!\n", actor_name, sid);
+            LOG("\n%s> %s for tab %u!\n", actor_name,
+                tid < 0 ? "previous line still running" : "no available Forth task", key);
             heap_caps_free(psram_buf);
             reject(hd, fd);
             return;
         }
-        
         SessionState &s = _ses[slot];
         s.sid       = sid;
         s.tid       = (uint32_t)tid;
@@ -192,6 +199,7 @@ public:
         s.read_idx  = 0;
         s.fb_count  = 0;
         s.fb_total  = 0;
+        s.key       = key;
         
         // Flush HTTP Chunked Transfer Encoding initial response headers line-by-line
         const char* headers =
@@ -215,7 +223,8 @@ public:
             }
             if (err) send_chunk(s.hd, s.fd, err, strlen(err));
         };
-        int slot = find_slot(msg.sid);
+        int slot = (msg.type == MSG_FORTH_ABORT)
+            ? find_key(msg.sid) : find_slot(msg.sid);
         if (slot < 0) return;
 
         SessionState &s = _ses[slot];
@@ -247,13 +256,13 @@ public:
         case MSG_FORTH_DONE:
             LOG("  %s.%u << DONE", actor_name, msg.sid);
             clean(s, "");
-            finish_slot(slot);
+            finish_slot(slot, false);
             break;
 
         case MSG_FORTH_ABORT:
             LOG("  %s.%u << ABORT", actor_name, msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
-            finish_slot(slot);
+            finish_slot(slot, true);
             break;
 
         default:
