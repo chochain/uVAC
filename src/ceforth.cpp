@@ -858,6 +858,15 @@ void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
             add_w(w);                            /// * add to colon word
         }
         else CALL(vm, *w);                       /// * execute word
+        if ((int)vm.ss.idx < 0) {                /// * underflow guard
+            vm.ss.idx  = 0;
+            vm.compile = false;
+            pstr("stack underflow", CR);
+#if DO_MULTITASK && !USE_PTHREAD
+            if (vm.ses) { fin_drop(); vm.state = QUERY; return; }
+#endif
+            vm.state = STOP;
+        }
         return;
     }
     /// try as a number
