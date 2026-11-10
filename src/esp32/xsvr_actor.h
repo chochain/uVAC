@@ -9,25 +9,25 @@
 #define MAX_SESSIONS   8
 
 struct SessionState {
-    uint32_t       sid        = 0;
-    uint32_t       tid        = 0;
-    int            fd         = -1;
-    httpd_handle_t hd         = nullptr;
-    bool           is_active  = false;
+    uint32_t       sid        = 0;        ///< session id
+    uint32_t       tid        = 0;        ///< task slot id
+    int            fd         = -1;       ///< file handle
+    httpd_handle_t hd         = nullptr;  ///< HTTP session handle
+    bool           is_active  = false;    ///< flag: session active (slot occupied)
+    bool           eof_wait   = false;    ///< flag: waiting for EOF
     
-    char           *mem_block = nullptr;
-    size_t         read_idx   = 0;
-    size_t         total_len  = 0;
+    char           *mem_block = nullptr;  ///< session input buffer pointer (PSRAM)
+    size_t         read_idx   = 0;        ///< buffer current pos
+    size_t         total_len  = 0;        ///< buffer total length
 
-    uint32_t       fb_count   = 0;
-    uint32_t       fb_total   = 0;
-    bool           eof_wait   = false;
+    uint32_t       fb_count   = 0;        ///< feedback counter
+    uint32_t       fb_total   = 0;        ///< feedback tally
 };
 
 class ServerActor : public BaseActor {
 private:
     SessionState      _ses[MAX_SESSIONS];
-    SemaphoreHandle_t _mutex;           // esp_http_server socket send isolation mutex
+    SemaphoreHandle_t _mutex;             ///< esp_http_server socket send mutex
 
     int find_slot(uint32_t sid) {
         for (int i = 0; i < MAX_SESSIONS; i++) {
@@ -39,10 +39,10 @@ private:
     int get_empty_slot() {
         for (int i = 0; i < MAX_SESSIONS; i++) {
             if (!_ses[i].is_active) {
-                return i; // Found an available structural slot!
+                return i;                /// Found an available structural slot!
             }
         }
-        return -1; // Index full
+        return -1;                       /// session bucket full
     }
     
     void send_chunk(httpd_handle_t hd, int fd, const char *data, size_t len) {
@@ -61,25 +61,25 @@ private:
     void dispatch_next_line(int slot) {
         SessionState &s = _ses[slot];
     
-        // Wrap the entire parsing block inside a flat execution loop
+        /// Wrap the entire parsing block inside a flat execution loop
         while (true) {
             if (s.read_idx >= s.total_len) {
-                // All text segments consumed. Safely trigger completion event.
+                /// All text segments consumed. Safely trigger completion event.
                 ActorMsg done { MSG_FORTH_DONE, SERVER_ACTOR_ID, s.sid, s.tid };
                 done.buf[0] = '\0';
                 Sys.send(done);
-                return; // 🟢 Safe exit, 0 recursion risk
+                return;               /// safe exit, 0 recursion risk
             }
             char line_buf[QUE_BUF_SZ];
             size_t w = 0;
 
-            // Extract characters until reaching a clean newline delimiter
+            /// Extract characters until reaching a clean newline delimiter
             while (s.read_idx < s.total_len) {
                 char c = s.mem_block[s.read_idx++];
             
                 if (c == '\r' || c == '\0') continue;
                 if (c == '\n') {
-                    if (w > 0) break; // Complete command captured!
+                    if (w > 0) break; /// complete command captured!
                     continue;
                 }
                 if (w < QUE_BUF_SZ - 1) {
@@ -88,36 +88,36 @@ private:
             }
             line_buf[w] = '\0';
 
-            if (w > 0) {
-                // Valid command found! Dispatch to Forth VM and break the loop
+            if (w > 0) {              /// valid command, send to Forth VM
                 ActorMsg m { MSG_FORTH_EXEC, FORTH_ACTOR_ID, s.sid, s.tid };
                 memcpy(m.buf, line_buf, w + 1);
                 Sys.send(m);
-                return; // 🟢 Exit function. Wait for EOL handshake token.
+                return;               /// line sent, wait for EOL handshake.
             }
-            // If w == 0, the loop naturally continues to evaluate the next line 
-            // without allocating any extra stack frames!
+            /// If w == 0, the loop naturally continues to evaluate the next line 
+            /// without allocating any extra stack frames!
         }
     }
     
     void check_and_handshake(int slot) {
         SessionState &s = _ses[slot];
         
-        // Only proceed if we have received the EOL message AND all feedback packets have arrived
-        if (s.eof_wait && (s.fb_count == s.fb_total)) {
-            // Reset counters for the next line sequence step
-            s.fb_count = 0;
-            s.fb_total = 0;
-            s.eof_wait = false;
+        /// Only proceed if we have received the EOL message
+        /// and all feedback packets have arrived
+        if (!s.eof_wait || (s.fb_count != s.fb_total)) return;
+        
+        /// Reset counters for the next line sequence step
+        s.fb_count = 0;
+        s.fb_total = 0;
+        s.eof_wait = false;
 
-            // 1. Handshake ACK back to Forth Actor to release its lock state
-            ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid, s.tid };
-            ack.buf[0] = '\0';
-            Sys.send(ack);
+        /// send ACK back to Forth Actor to release its lock state if any
+        ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid, s.tid };
+        ack.buf[0] = '\0';
+        Sys.send(ack);
 
-            // 2. Move to the next string segment inside PSRAM
-            dispatch_next_line(slot);
-        }
+        /// 2. Move to the next string segment inside PSRAM
+        dispatch_next_line(slot);
     }
     
     void finish_slot(int slot) {
@@ -131,7 +131,7 @@ private:
             xSemaphoreGive(_mutex);
         }
 
-        DEBUG("[XS].%u HANGUP sent. Session cleanly closed.\n", s.sid);
+        DEBUG("[%s].%u HANGUP sent. Session cleanly closed.\n", actor_name, s.sid);
         s.is_active = false;
         s.sid       = 0;
         s.tid       = 0;
@@ -152,7 +152,7 @@ private:
     };
 
 public:
-    ServerActor(uint32_t actor_id) : BaseActor(actor_id) {
+    ServerActor(uint32_t id, const char *name) : BaseActor(id, name) {
         _smtx  = xSemaphoreCreateRecursiveMutex();
         _mutex = xSemaphoreCreateBinary();
         xSemaphoreGive(_mutex);
@@ -166,7 +166,7 @@ public:
         Guard g(_smtx);
         int slot = get_empty_slot();
         if (slot == -1) {
-            LOG("[XS] Max session capacity %d hit! Rejecting request.\n", MAX_SESSIONS);
+            LOG("[%s] Max session capacity %d hit! Rejecting request.\n", actor_name, MAX_SESSIONS);
             heap_caps_free(psram_buf); // Release allocation payload block
             reject(hd, fd);
             return;
@@ -174,7 +174,7 @@ public:
 
         int tid = session_open(sid);   ///< the session IS a Forth task (VM slot)
         if (tid <= 0) {
-            LOG("[XS] No available Forth task for session %u!\n", sid);
+            LOG("[%s] No available Forth task for session %u!\n", actor_name, sid);
             heap_caps_free(psram_buf);
             reject(hd, fd);
             return;
@@ -185,13 +185,13 @@ public:
         s.tid       = (uint32_t)tid;
         s.fd        = fd;
         s.hd        = hd;
+        s.is_active = true;
+        s.eof_wait  = false;
         s.mem_block = psram_buf; 
         s.total_len = len;
         s.read_idx  = 0;
         s.fb_count  = 0;
         s.fb_total  = 0;
-        s.eof_wait  = false;
-        s.is_active = true;
         
         // Flush HTTP Chunked Transfer Encoding initial response headers line-by-line
         const char* headers =
@@ -201,13 +201,13 @@ public:
             "Connection: keep-alive\r\n\r\n";
         httpd_socket_send(hd, fd, headers, strlen(headers), 0);
 
-        DEBUG("[XS].%u Session created on VM %u, HEADER sent.\n", sid, tid);
-        // Begin your execution sequence loop [1]
+        DEBUG("[%s].%u Session created on VM %u, HEADER sent.\n", actor_name, sid, tid);
+        /// Begin your execution sequence loop [1]
         dispatch_next_line(slot);
     }
 
     void receive(const ActorMsg &msg) override {
-        Guard g(_smtx);                 // workers may deliver msgs of different sessions in parallel
+        Guard g(_smtx);                 /// workers may deliver msgs of different sessions in parallel
         auto clean = [this](SessionState &s, const char *err) {
             if (s.mem_block != nullptr) {
                 heap_caps_free(s.mem_block);
@@ -222,8 +222,8 @@ public:
 
         switch (msg.type) {
         case MSG_FORTH_FEEDBACK:
-            DEBUG("[XS].%u << FB => '%s'\n", msg.sid, (char*)msg.buf);
-            s.fb_count++; // 👈 Track arrival
+            DEBUG("[%s].%u << FB => '%s'\n", actor_name, msg.sid, (char*)msg.buf);
+            s.fb_count++;               /// Track arrival
             send_chunk(s.hd, s.fd, msg.buf, strlen(msg.buf));
             
             // Check if this feedback was the last piece we were waiting for
@@ -231,7 +231,7 @@ public:
             break;
 
         case MSG_FORTH_EOL:
-            DEBUG("[XS].%u << EOL => EOL_ACK\n", msg.sid);
+            DEBUG("[%s].%u << EOL => EOL_ACK\n", actor_name, msg.sid);
             // Forth VM completed its processing loop step and is waiting!
             // 1. Force the LwIP network buffers to clear out onto the physical wire
             // (Optional: flush hardware sockets if necessary)
@@ -245,19 +245,19 @@ public:
             break;
             
         case MSG_FORTH_DONE:
-            DEBUG("[XS].%u << DONE\n", msg.sid);
+            DEBUG("[%s].%u << DONE\n", actor_name, msg.sid);
             clean(s, "");
             finish_slot(slot);
             break;
 
         case MSG_FORTH_ABORT:
-            DEBUG("[XS].%u << ABORT\n", msg.sid);
+            DEBUG("[%s].%u << ABORT\n", actor_name, msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
             finish_slot(slot);
             break;
 
         default:
-            DEBUG("[XS].%u << Unknown msg.type=%d\n", msg.sid, msg.type);
+            DEBUG("[%s].%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
             break;
         }
     }
