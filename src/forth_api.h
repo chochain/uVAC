@@ -32,6 +32,8 @@ enum {                                      ///< forth_run() results
 
 int      session_open(uint32_t sid);        ///< claim a task slot for a web session, 0 if pool full
 bool     session_close(uint32_t tid);       ///< release it (waits briefly for the engine lock)
+int      session_attach(uint32_t key, uint32_t sid);       ///< >0 tid, 0 pool full, -1 tab busy
+bool     session_release(uint32_t tid, bool abort=false);  ///< end a request, KEEP the stack
 
 /// One slice of a session's line. line!=NULL starts a line, NULL resumes it.
 /// hook(len, text) receives output while the slice runs (engine lock held).
