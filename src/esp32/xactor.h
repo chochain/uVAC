@@ -67,8 +67,9 @@ struct ActorMsg {
 
 class BaseActor {
 public:
-    uint32_t id;
-    BaseActor(uint32_t actor_id) : id(actor_id) {}
+    const char *actor_name = nullptr;
+    uint32_t   actor_id;
+    BaseActor(uint32_t id, const char *name) : actor_id(id), actor_name(name) {}
     virtual ~BaseActor() {}
     virtual void receive(const ActorMsg &msg) = 0;
 };
@@ -89,8 +90,8 @@ private:
             /// n-workers blocked here at 0% CPU until new msg arrived
             if (xQueueReceive(sys->_queue, &msg, portMAX_DELAY) == pdTRUE) {
                 BaseActor *actor = sys->get_actor(msg.target_id);
-                DEBUG("%s> {%u:%u '%s'} >> [actor%u]\n",
-                      pcTaskGetName(NULL), msg.sid, msg.type, (char*)msg.buf, msg.target_id);
+                DEBUG("%s> {%u:%u '%s'} >> [%s]\n",
+                      pcTaskGetName(NULL), msg.sid, msg.type, (char*)msg.buf, actor->actor_name);
                 if (actor) actor->receive(msg);
                 /// no delay here, so no context switching
             }
@@ -125,7 +126,7 @@ public:
     
     void register_actor(BaseActor *actor) {
         xSemaphoreTake(_mutex, portMAX_DELAY);
-        _registry[actor->id] = actor;
+        _registry[actor->actor_id] = actor;
         xSemaphoreGive(_mutex);
     }
 
@@ -138,8 +139,12 @@ public:
     /// Bounded-wait send. ONLY call from threads that are not this queue's
     /// consumer (Forth task, httpd thread). Never from a dispatcher worker.
     bool send(const ActorMsg &msg, TickType_t ticks=QUE_WAIT_TICKS, bool priority=false) {
-        DEBUG("%s> [actor%u] << {%u:%u '%s'}",
-              pcTaskGetName(NULL), msg.target_id, msg.sid, msg.type, (char*)msg.buf);
+        auto it = _registry.find(msg.target_id);
+        BaseActor* actor = (it != _registry.end()) ? it->second : nullptr;
+        if (!actor) return false;
+        
+        DEBUG("%s> [%s] << {%u:%u '%s'}",
+              pcTaskGetName(NULL), actor->actor_name, msg.sid, msg.type, (char*)msg.buf);
         if (!_queue) return false;
         bool rst = priority
              ? xQueueSendToFront(_queue, &msg, ticks) == pdPASS
