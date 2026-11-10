@@ -124,7 +124,10 @@ struct ALIGNAS VM {
     bool        ses     = false;   ///< true: web-session shell (owns a text line, not just a word)
     const char *tib     = NULL;    ///< input cursor, parked here while swapped out
     char       *tbuf    = NULL;    ///< owned copy of the current line
-
+    uint32_t    key     = 0;       ///< owner: browser-tab id (0 = none)
+    uint32_t    last    = 0;       ///< millis() of last release, for LRU eviction
+    bool        busy    = false;   ///< a request is in flight on this VM
+    
 #endif // USER_PTHREAD
 #endif // DO_MULTITASK
 };
