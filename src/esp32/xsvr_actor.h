@@ -222,7 +222,7 @@ public:
 
         switch (msg.type) {
         case MSG_FORTH_FEEDBACK:
-            DEBUG("  %s.%u << FB => '%s'\n", actor_name, msg.sid, (char*)msg.buf);
+            LOG("  %s.%u << FB => '%s'", actor_name, msg.sid, (char*)msg.buf);
             s.fb_count++;               /// Track arrival
             send_chunk(s.hd, s.fd, msg.buf, strlen(msg.buf));
             
@@ -231,7 +231,7 @@ public:
             break;
 
         case MSG_FORTH_EOL:
-            DEBUG("  %s.%u << EOL => EOL_ACK\n", actor_name, msg.sid);
+            LOG("  %s.%u << EOL => EOL_ACK", actor_name, msg.sid);
             // Forth VM completed its processing loop step and is waiting!
             // 1. Force the LwIP network buffers to clear out onto the physical wire
             // (Optional: flush hardware sockets if necessary)
@@ -245,13 +245,13 @@ public:
             break;
             
         case MSG_FORTH_DONE:
-            DEBUG("  %s.%u << DONE\n", actor_name, msg.sid);
+            LOG("  %s.%u << DONE", actor_name, msg.sid);
             clean(s, "");
             finish_slot(slot);
             break;
 
         case MSG_FORTH_ABORT:
-            DEBUG("  %s.%u << ABORT\n", actor_name, msg.sid);
+            LOG("  %s.%u << ABORT", actor_name, msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
             finish_slot(slot);
             break;

@@ -94,23 +94,23 @@ public:
     void receive(const ActorMsg &msg) override {
         switch (msg.type) {
         case MSG_FORTH_EXEC:
-            DEBUG("  %s.%u << %s T%u\n", actor_name, msg.sid, "EXEC", msg.tid);
+            LOG("  %s.%u << %s", actor_name, msg.sid, "EXEC");
             handle_run(msg);
             break;
             
         case MSG_FORTH_RESUME: {
-            DEBUG("  %s.%u << %s T%u\n", actor_name, msg.sid, "RESUME", msg.tid);
+            LOG("  %s.%u << %s", actor_name, msg.sid, "RESUME");
             handle_run(msg);
             break;
         }
         case MSG_FORTH_EOL_ACK:
-            DEBUG("  %s.%u << EOL_ACK\n", actor_name, msg.sid);
+            LOG("  %s.%u << EOL_ACK", actor_name, msg.sid);
             // The Coordinator confirmed network buffers are clear.
             // xsvr_actor already send MSG_FORTH_DONE to itself
             break;
 
         case MSG_GUI_TOUCH:
-            DEBUG("  %s.%u << touch(%d, %d)\n", actor_name, msg.sid, msg.touch.x, msg.touch.y);
+            DEBUG("  %s.%u << touch(%d, %d)", actor_name, msg.sid, msg.touch.x, msg.touch.y);
             break;
 
         default:
