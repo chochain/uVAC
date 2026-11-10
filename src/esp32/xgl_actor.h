@@ -52,8 +52,9 @@ private:
     void term_print(const char *txt, lv_color_t textColor);
 
 public:
-    XGL(uint32_t actor_id, uint32_t width = SCREEN_WIDTH, uint32_t height = SCREEN_HEIGHT) :
-        BaseActor(actor_id),
+    XGL(uint32_t id, const char *name,
+        uint32_t width = SCREEN_WIDTH, uint32_t height = SCREEN_HEIGHT) :
+        BaseActor(id, name),
         _width(width),
         _height(height),
         _task(NULL),

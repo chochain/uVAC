@@ -112,15 +112,15 @@ void XGL::process_mailbox() {
     while (xQueueReceive(_mailbox, &msg, 0) == pdTRUE) {
         switch (msg.type) {
         case MSG_GUI_TEXT:
-            DEBUG("  [XG].%u << TEXT '%s'\n", msg.sid, (char*)msg.buf);
+            DEBUG("  [%s].%u << TEXT '%s'\n", actor_name, msg.sid, (char*)msg.buf);
             term_print(msg.buf, lv_color_make(0, 255, 255));
             break;
         case MSG_GUI_DRAW:  // holder
-            DEBUG("  [XG].%u << DRAW '%s'\n", msg.sid, (char*)msg.buf);
+            DEBUG("  [%s].%u << DRAW '%s'\n", actor_name, msg.sid, (char*)msg.buf);
             term_print(msg.buf, lv_color_make(0, 255, 255));
             break;
         case MSG_SYS_TELEMETRY: {
-            DEBUG("  [XG].%u << SYS '%s'\n", msg.sid, (char*)msg.buf);
+            DEBUG("  [%s].%u << SYS '%s'\n", actor_name, msg.sid, (char*)msg.buf);
 #if 0            
             char fmt_buf[32];
             if (_sram_label) {
@@ -134,7 +134,7 @@ void XGL::process_mailbox() {
 #endif
         } break;
         default:
-            LOG("  [XG].%u << unknown type=%d '%s'\n", msg.sid, msg.type, (char*)msg.buf);
+            LOG("  [%s].%u << unknown type=%d '%s'\n", actor_name, msg.sid, msg.type, (char*)msg.buf);
             break;
         }
     }
