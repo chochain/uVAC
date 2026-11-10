@@ -24,9 +24,9 @@ const int   WIFI_PORT = 80;               ///< and the password
 ActorSystem Sys; // Global instantiation assignment
 
 XServer       gWebServer(WIFI_SSID, WIFI_PASS, WIFI_PORT);
-ServerActor   gSvrActor(SERVER_ACTOR_ID);
-ForthActor    gForthActor(FORTH_ACTOR_ID);
-XGL           gUiRenderer(GUI_ACTOR_ID, 480, 480);
+ServerActor   gSvrActor(  SERVER_ACTOR_ID, "XS");
+ForthActor    gForthActor(FORTH_ACTOR_ID,  "XF");
+XGL           gUiRenderer(GUI_ACTOR_ID,    "XG", 480, 480);
 TimerHandle_t gTimer       = nullptr;
 
 void timer_callback(TimerHandle_t xTimer) {
