@@ -131,7 +131,7 @@ private:
             xSemaphoreGive(_mutex);
         }
 
-        DEBUG("[%s].%u HANGUP sent. Session cleanly closed.\n", actor_name, s.sid);
+        DEBUG("  %s.%u HANGUP sent. Session cleanly closed.\n", actor_name, s.sid);
         s.is_active = false;
         s.sid       = 0;
         s.tid       = 0;
@@ -166,7 +166,7 @@ public:
         Guard g(_smtx);
         int slot = get_empty_slot();
         if (slot == -1) {
-            LOG("[%s] Max session capacity %d hit! Rejecting request.\n", actor_name, MAX_SESSIONS);
+            LOG("\n%s> Max session capacity %d hit! Rejecting request.\n", actor_name, MAX_SESSIONS);
             heap_caps_free(psram_buf); // Release allocation payload block
             reject(hd, fd);
             return;
@@ -174,7 +174,7 @@ public:
 
         int tid = session_open(sid);   ///< the session IS a Forth task (VM slot)
         if (tid <= 0) {
-            LOG("[%s] No available Forth task for session %u!\n", actor_name, sid);
+            LOG("\n%s> No available Forth task for session %u!\n", actor_name, sid);
             heap_caps_free(psram_buf);
             reject(hd, fd);
             return;
@@ -201,7 +201,7 @@ public:
             "Connection: keep-alive\r\n\r\n";
         httpd_socket_send(hd, fd, headers, strlen(headers), 0);
 
-        DEBUG("[%s].%u Session created on VM %u, HEADER sent.\n", actor_name, sid, tid);
+        DEBUG("  %s.%u Session created on VM %u, HEADER sent.\n", actor_name, sid, tid);
         /// Begin your execution sequence loop [1]
         dispatch_next_line(slot);
     }
@@ -222,7 +222,7 @@ public:
 
         switch (msg.type) {
         case MSG_FORTH_FEEDBACK:
-            DEBUG("[%s].%u << FB => '%s'\n", actor_name, msg.sid, (char*)msg.buf);
+            DEBUG("  %s.%u << FB => '%s'\n", actor_name, msg.sid, (char*)msg.buf);
             s.fb_count++;               /// Track arrival
             send_chunk(s.hd, s.fd, msg.buf, strlen(msg.buf));
             
@@ -231,7 +231,7 @@ public:
             break;
 
         case MSG_FORTH_EOL:
-            DEBUG("[%s].%u << EOL => EOL_ACK\n", actor_name, msg.sid);
+            DEBUG("  %s.%u << EOL => EOL_ACK\n", actor_name, msg.sid);
             // Forth VM completed its processing loop step and is waiting!
             // 1. Force the LwIP network buffers to clear out onto the physical wire
             // (Optional: flush hardware sockets if necessary)
@@ -245,19 +245,19 @@ public:
             break;
             
         case MSG_FORTH_DONE:
-            DEBUG("[%s].%u << DONE\n", actor_name, msg.sid);
+            DEBUG("  %s.%u << DONE\n", actor_name, msg.sid);
             clean(s, "");
             finish_slot(slot);
             break;
 
         case MSG_FORTH_ABORT:
-            DEBUG("[%s].%u << ABORT\n", actor_name, msg.sid);
+            DEBUG("  %s.%u << ABORT\n", actor_name, msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
             finish_slot(slot);
             break;
 
         default:
-            DEBUG("[%s].%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
+            DEBUG("  %s.%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
             break;
         }
     }

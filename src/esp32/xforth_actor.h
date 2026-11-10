@@ -30,6 +30,7 @@ private:
         const uint32_t tid = forth_cur_tid();
         if (!sid) return;                           /// * closed or aborted: drop output
 
+        BaseActor *svr = Sys.get_actor(SERVER_ACTOR_ID);
         BaseActor *gui = Sys.get_actor(GUI_ACTOR_ID);
 
         for (int off = 0; off < len; off += QUE_BUF_SZ - 1) {
@@ -42,7 +43,7 @@ private:
             int tries = FB_RETRY;
             while (!Sys.send(fb, 0)) {              /// queue full: let the other workers drain it
                 if (!forth_cur_sid() || --tries <= 0) {
-                    LOG("  [XF].%u output dropped (queue full)\n", sid);
+                    LOG("  %s.%u output dropped (queue full)\n", svr->actor_name, sid);
                     return;                         /// not counted, so EOL handshake still balances
                 }
                 vTaskDelay(1);
@@ -71,7 +72,7 @@ public:
             ActorMsg eof { MSG_FORTH_EOL, SERVER_ACTOR_ID, msg.sid, msg.tid };
             eof.buf[0]        = '\0';
             eof.feedback_sent = forth_fb(msg.tid);
-            if (!post(eof)) LOG("  [%s].%u EOL lost\n", actor_name, msg.sid);
+            if (!post(eof)) LOG("  %s.%u EOL lost\n", actor_name, msg.sid);
             break;
         }
         case RUN_MORE:                          /// paused: runnable right away
@@ -79,12 +80,12 @@ public:
             if (rc == RUN_WAIT) vTaskDelay(1);
             ActorMsg again = msg;
             again.type = MSG_FORTH_RESUME;
-            if (!post(again)) LOG("  [%s].%u RESUME lost\n", actor_name, msg.sid);
+            if (!post(again)) LOG("  %s.%u RESUME lost\n", actor_name, msg.sid);
             break;
         }
         case RUN_BUSY:                          /// engine or compiler taken: same request again
             vTaskDelay(1);
-            if (!post(msg)) LOG("  [%s].%u retry lost\n", actor_name, msg.sid);
+            if (!post(msg)) LOG("  %s.%u retry lost\n", actor_name, msg.sid);
             break;
         default: break;                         /// RUN_GONE: session was closed, nothing to report
         }
@@ -93,27 +94,27 @@ public:
     void receive(const ActorMsg &msg) override {
         switch (msg.type) {
         case MSG_FORTH_EXEC:
-            DEBUG("  [%s].%u << %s T%u\n", actor_name, msg.sid, "EXEC", msg.tid);
+            DEBUG("  %s.%u << %s T%u\n", actor_name, msg.sid, "EXEC", msg.tid);
             handle_run(msg);
             break;
             
         case MSG_FORTH_RESUME: {
-            DEBUG("  [%s].%u << %s T%u\n", actor_name, msg.sid, "RESUME", msg.tid);
+            DEBUG("  %s.%u << %s T%u\n", actor_name, msg.sid, "RESUME", msg.tid);
             handle_run(msg);
             break;
         }
         case MSG_FORTH_EOL_ACK:
-            DEBUG("  [%s].%u << EOL_ACK\n", actor_name, msg.sid);
+            DEBUG("  %s.%u << EOL_ACK\n", actor_name, msg.sid);
             // The Coordinator confirmed network buffers are clear.
             // xsvr_actor already send MSG_FORTH_DONE to itself
             break;
 
         case MSG_GUI_TOUCH:
-            DEBUG("  [%s].%u << touch(%d, %d)\n", actor_name, msg.sid, msg.touch.x, msg.touch.y);
+            DEBUG("  %s.%u << touch(%d, %d)\n", actor_name, msg.sid, msg.touch.x, msg.touch.y);
             break;
 
         default:
-            LOG("  [%s].%u << msg.type=%d not supported\n", actor_name, msg.sid, msg.type);
+            LOG("  %s.%u << msg.type=%d not supported\n", actor_name, msg.sid, msg.type);
             break;
         }
     }

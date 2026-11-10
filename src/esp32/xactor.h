@@ -90,7 +90,7 @@ private:
             /// n-workers blocked here at 0% CPU until new msg arrived
             if (xQueueReceive(sys->_queue, &msg, portMAX_DELAY) == pdTRUE) {
                 BaseActor *actor = sys->get_actor(msg.target_id);
-                DEBUG("%s> {%u:%u '%s'} >> [%s]\n",
+                DEBUG("\n%s> {%u:%u '%s'} >> [%s]",
                       pcTaskGetName(NULL), msg.sid, msg.type, (char*)msg.buf, actor->actor_name);
                 if (actor) actor->receive(msg);
                 /// no delay here, so no context switching
@@ -109,8 +109,8 @@ public:
         _workers = new TaskHandle_t[n];
         
         for (int i = 0; i < n; ++i) {
-            char name[16];
-            snprintf(name, sizeof(name), "worker%d", i);
+            char name[10];
+            snprintf(name, sizeof(name), "W%d", i);
             xTaskCreatePinnedToCore(
                 dispatch, name, 8192,
                 this, priority, &_workers[i], 0);   /// Pinned to Core 0
@@ -142,14 +142,17 @@ public:
         auto it = _registry.find(msg.target_id);
         BaseActor* actor = (it != _registry.end()) ? it->second : nullptr;
         if (!actor) return false;
-        
-        DEBUG("%s> [%s] << {%u:%u '%s'}",
-              pcTaskGetName(NULL), actor->actor_name, msg.sid, msg.type, (char*)msg.buf);
+
+        DEBUG("\n%s> [%s] << {%u:%u '%s'}",
+            pcTaskGetName(NULL), actor->actor_name, msg.sid, msg.type, (char*)msg.buf);
+
         if (!_queue) return false;
+              
         bool rst = priority
              ? xQueueSendToFront(_queue, &msg, ticks) == pdPASS
              : xQueueSend(_queue, &msg, ticks) == pdPASS;
-        DEBUG("%s\n", rst ? "" : " => queue full");
+        
+        DEBUG("%s", rst ? "_" : " => queue full");
         
         return rst;
     }

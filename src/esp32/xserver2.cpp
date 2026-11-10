@@ -279,6 +279,6 @@ void XServer::setup() {
     };
     httpd_register_uri_handler(_httpd, &abort_uri);
     
-    LOG("\nXSVR> live at http://%s on core[%u]\n",
+    LOG("\nxserver2> live at http://%s on core[%u]\n",
         WiFi.localIP().toString().c_str(), config.core_id);
 }
