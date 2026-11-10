@@ -170,6 +170,9 @@ int session_open(uint32_t sid) {              ///< returns tid, or 0 if the pool
     v.ses     = true;
     v.tib     = nullptr;
     v.tbuf    = nullptr;
+    v.key     = 0;
+    v.busy    = false;
+    v.last    = millis();
     
     *(MEM0 + v.base) = 10;                    /// * default radix
     return i;
@@ -196,9 +199,73 @@ bool session_close(uint32_t tid) {
     v.ses     = false;
     v.tib     = nullptr;
     v.tbuf    = nullptr;
+    v.key     = 0;
+    v.busy    = false;
     
     forth_unlock();
     
+    return true;
+}
+
+static int session_lru() {                    ///< oldest idle persistent session, or 0
+    int best = 0;
+    for (int i = 1; i < E4_VM_POOL_SZ; i++) {
+        VM &v = _vm[i];
+        if (!v.ses || v.busy) continue;
+        if (!best || (S32)(_vm[best].last - v.last) > 0) best = i;
+    }
+    return best;
+}
+
+///> one VM per browser tab: find it (stack intact) or create it; rebind to this request's sid
+int session_attach(uint32_t key, uint32_t sid) {
+    int t = 0;
+    for (int i = 1; i < E4_VM_POOL_SZ; i++) {
+        if (_vm[i].ses && _vm[i].key == key) { t = i; break; }
+    }
+    if (t) {
+        if (_vm[t].busy) return -1;           /// * previous line of this tab still running
+    }
+    else {
+        t = session_open(sid);
+        if (!t) {                             /// * pool full: evict least-recently-used idle tab
+            int v = session_lru();
+            if (v && session_close(v)) t = session_open(sid);
+        }
+        if (!t) return 0;
+        _vm[t].key = key;
+    }
+    VM &v = _vm[t];
+    v.sid  = sid;                             /// * new sid: stale RESUMEs of old requests now fail
+    v.fb   = 0;
+    v.busy = true;
+    return t;
+}
+
+///> request finished: free the HTTP side, keep ss (and an open ':' unless aborted)
+bool session_release(uint32_t tid, bool abort) {
+    if (tid <= 0 || tid >= E4_VM_POOL_SZ) return false;
+    VM &v = _vm[tid];
+    if (!v.ses) return false;
+
+    v.sid  = 0;                               /// * first: in-flight slices drop themselves
+    v.busy = false;
+    v.last = millis();
+    if (!forth_lock(250)) {
+        LOG("[SYSTEM] session_release(%d) timed out\n", (int)tid);
+        return false;
+    }
+    free(v.tbuf);  v.tbuf = nullptr;
+    v.tib = nullptr;
+    v.wake = 0;
+    if (abort) {                              /// * interrupted mid-word: clean control state only
+        v.rs.idx  = 0;
+        v.ip      = 0;
+        v.state   = QUERY;
+        v.compile = false;
+        if (g_compiler == (int)tid) g_compiler = -1;
+    }
+    forth_unlock();
     return true;
 }
 
