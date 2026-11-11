@@ -80,7 +80,7 @@ void my_touchpad_read(lv_indev_drv_t *touch_drv, lv_indev_data_t *data) {
 void XGL::receive(const ActorMsg &msg) {
     // ️Apply Backpressure: Block the calling Core 0 worker task if Core 1 is saturated
     if (xQueueSend(_mailbox, &msg, 0) != pdTRUE) {
-        LOG("%s> mailbox full drop: '%s'", actor_name, (char*)msg.buf);
+        XLOG("%s> mailbox full drop: '%s'", actor_name, (char*)msg.buf);
     }
 }
 
@@ -112,15 +112,15 @@ void XGL::process_mailbox() {
     while (xQueueReceive(_mailbox, &msg, 0) == pdTRUE) {
         switch (msg.type) {
         case MSG_GUI_TEXT:
-            DEBUG("  %s.%u << TEXT '%s'\n", actor_name, msg.sid, (char*)msg.buf);
+            XDEBUG("  %s.%u << TEXT '%s'\n", actor_name, msg.sid, (char*)msg.buf);
             term_print(msg.buf, lv_color_make(0, 255, 255));
             break;
         case MSG_GUI_DRAW:  // holder
-            DEBUG("  %s.%u << DRAW '%s'\n", actor_name, msg.sid, (char*)msg.buf);
+            XDEBUG("  %s.%u << DRAW '%s'\n", actor_name, msg.sid, (char*)msg.buf);
             term_print(msg.buf, lv_color_make(0, 255, 255));
             break;
         case MSG_SYS_TELEMETRY: {
-            DEBUG("  %s.%u << SYS '%s'\n", actor_name, msg.sid, (char*)msg.buf);
+            XDEBUG("  %s.%u << SYS '%s'\n", actor_name, msg.sid, (char*)msg.buf);
 #if 0            
             char fmt_buf[32];
             if (_sram_label) {
@@ -134,7 +134,7 @@ void XGL::process_mailbox() {
 #endif
         } break;
         default:
-            LOG("  %s.%u << unknown type=%d '%s'\n", actor_name, msg.sid, msg.type, (char*)msg.buf);
+            XLOG("  %s.%u << unknown type=%d '%s'\n", actor_name, msg.sid, msg.type, (char*)msg.buf);
             break;
         }
     }
@@ -231,7 +231,7 @@ void XGL::init_hardware() {
     _disp_draw_buf    = (lv_color_t*)ps_malloc(raw_sz);
     
     if (_disp_draw_buf == NULL) {
-        LOG("%s> Fatal: Failed to allocate frame canvas buffer %x in PSRAM!", actor_name, raw_sz);
+        XLOG("%s> Fatal: Failed to allocate frame canvas buffer %x in PSRAM!", actor_name, raw_sz);
         vTaskDelete(NULL);
     }
     lv_disp_draw_buf_init(&_draw_buf, _disp_draw_buf, NULL, buf_sz);
@@ -297,7 +297,7 @@ void XGL::init_hardware() {
     // Add Boot Greetings Text String
     lv_textarea_set_text(_term_log, "xeForth Initialized.\n\n");
     
-    LOG("%s> active buf_sz=%d (bytes) on core[%d].\n", actor_name, raw_sz, xPortGetCoreID());
+    XLOG("%s> active buf_sz=%d (bytes) on core[%d].\n", actor_name, raw_sz, xPortGetCoreID());
 }
 
 
