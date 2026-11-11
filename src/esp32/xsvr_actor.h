@@ -137,7 +137,7 @@ private:
             xSemaphoreGive(_mutex);
         }
 
-        DEBUG("  %s.%u HANGUP sent. Session cleanly closed.\n", actor_name, s.sid);
+        XDEBUG("  %s.%u HANGUP sent. Session cleanly closed.\n", actor_name, s.sid);
         s.is_active = false;
         s.sid       = 0;
         s.tid       = 0;
@@ -169,7 +169,7 @@ public:
         if (_mutex) vSemaphoreDelete(_mutex);
     }
 
-    void register_new_conn(
+    void register_conn(
         uint32_t key, uint32_t sid,
         int fd, httpd_handle_t hd, char* psram_buf, size_t len) {
         Guard g(_smtx);
@@ -178,7 +178,7 @@ public:
 
         int tid = session_attach(key, sid);   ///< the tab's persistent Forth VM
         if (tid <= 0) {
-            LOG("\n%s> %s for tab %u!\n", actor_name,
+            XLOG("\n%s> %s for tab %u!\n", actor_name,
                 tid < 0 ? "previous line still running" : "no available Forth task", key);
             heap_caps_free(psram_buf);
             reject(hd, fd);
@@ -206,7 +206,7 @@ public:
             "Connection: keep-alive\r\n\r\n";
         httpd_socket_send(hd, fd, headers, strlen(headers), 0);
 
-        DEBUG("  %s.%u Session created on VM %u, HEADER sent.\n", actor_name, sid, tid);
+        XDEBUG("  %s.%u Session created on VM %u, HEADER sent.\n", actor_name, sid, tid);
         /// Begin your execution sequence loop [1]
         dispatch_next_line(slot);
     }
@@ -228,7 +228,7 @@ public:
 
         switch (msg.type) {
         case MSG_FORTH_FEEDBACK:
-            LOG("  %s.%u << FB => '%s'", actor_name, msg.sid, (char*)msg.buf);
+            XLOG("  %s.%u << FB => '%s'", actor_name, msg.sid, (char*)msg.buf);
             s.fb_count++;               /// Track arrival
             send_chunk(s.hd, s.fd, msg.buf, strlen(msg.buf));
             
@@ -237,7 +237,7 @@ public:
             break;
 
         case MSG_FORTH_EOL:
-            LOG("  %s.%u << EOL => EOL_ACK", actor_name, msg.sid);
+            XLOG("  %s.%u << EOL => EOL_ACK", actor_name, msg.sid);
             // Forth VM completed its processing loop step and is waiting!
             // 1. Force the LwIP network buffers to clear out onto the physical wire
             // (Optional: flush hardware sockets if necessary)
@@ -251,19 +251,19 @@ public:
             break;
             
         case MSG_FORTH_DONE:
-            LOG("  %s.%u << DONE", actor_name, msg.sid);
+            XLOG("  %s.%u << DONE", actor_name, msg.sid);
             clean(s, "");
             finish_slot(slot, false);
             break;
 
         case MSG_FORTH_ABORT:
-            LOG("  %s.%u << ABORT", actor_name, msg.sid);
+            XLOG("  %s.%u << ABORT", actor_name, msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
             finish_slot(slot, true);
             break;
 
         default:
-            DEBUG("  %s.%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
+            XDEBUG("  %s.%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
             break;
         }
     }

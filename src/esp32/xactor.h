@@ -14,8 +14,8 @@
 #define QUE_BUF_SZ      128
 #define QUE_WAIT_TICKS  5
 
-#define LOG(fmt, ...)   Serial.printf(fmt, __VA_ARGS__)
-#define DEBUG(fmt, ...) Serial.printf(fmt, __VA_ARGS__)
+#define XLOG(fmt, ...)   Serial.printf(fmt, __VA_ARGS__)
+#define XDEBUG(fmt, ...) Serial.printf(fmt, __VA_ARGS__)
 
 // Static Global Target Registry IDs
 #define SERVER_ACTOR_ID 1     // Central Traffic Cop Actor ID
@@ -90,7 +90,7 @@ private:
             /// n-workers blocked here at 0% CPU until new msg arrived
             if (xQueueReceive(sys->_queue, &msg, portMAX_DELAY) == pdTRUE) {
                 BaseActor *actor = sys->get_actor(msg.target_id);
-                DEBUG("\n%s> {%u:%u '%s'} >> [%s]",
+                XDEBUG("\n%s> {%u:%u '%s'} >> [%s]",
                       pcTaskGetName(NULL), msg.sid, msg.type, (char*)msg.buf, actor->actor_name);
                 if (actor) actor->receive(msg);
                 /// no delay here, so no context switching
@@ -143,7 +143,7 @@ public:
         BaseActor* actor = (it != _registry.end()) ? it->second : nullptr;
         if (!actor) return false;
 
-        DEBUG("\n%s> [%s] << {%u:%u '%s'}",
+        XDEBUG("\n%s> [%s] << {%u:%u '%s'}",
             pcTaskGetName(NULL), actor->actor_name, msg.sid, msg.type, (char*)msg.buf);
 
         if (!_queue) return false;
@@ -152,7 +152,7 @@ public:
              ? xQueueSendToFront(_queue, &msg, ticks) == pdPASS
              : xQueueSend(_queue, &msg, ticks) == pdPASS;
         
-        DEBUG("%s", rst ? "_" : " => queue full");
+        XDEBUG("%s", rst ? "_" : " => queue full");
         
         return rst;
     }
