@@ -94,9 +94,7 @@ static const char HTML_INDEX[] PROGMEM = R"XX(<!DOCTYPE html>
           const tibValue = document.getElementById('tib').value;
           document.getElementById('tib-hidden-copy').value = tibValue;
           document.getElementById('tib').value='';
-          const sid = Math.floor(Date.now() % 10000);   
           const btn = document.getElementById('abort');
-          btn.setAttribute('data-sid', sid);
           btn.setAttribute('data-run', 'true');
         "
         hx-on::after-request="
@@ -130,24 +128,21 @@ struct HttpContext {
     int            fd;
 };
 
-static bool ct_eq(const char *a, const char *b) {          ///< constant-time compare, 32 chars
-    uint8_t d = 0;
-    for (int i = 0; i < 32; i++) d |= (uint8_t)(a[i] ^ b[i]);
-    return d == 0;
-}
-
-static bool cookie_token(httpd_req_t *req, char out[33]) {  ///< parse "uvac=<32 hex>"
+static bool _get_cookie(httpd_req_t *req, char out[33]) {      ///< parse "uvac=<32 hex>"
     size_t n = httpd_req_get_hdr_value_len(req, "Cookie");
     if (n == 0 || n > 400) return false;
-    char *c = (char*)malloc(n + 1);
+    char *c = (char*)malloc(n + 1);                            ///< CC: frag?
     if (!c) return false;
+    
     bool ok = false;
     if (httpd_req_get_hdr_value_str(req, "Cookie", c, n + 1) == ESP_OK) {
         for (char *p = c; (p = strstr(p, "uvac=")); p += 5) {
             if (p != c && p[-1] != ' ' && p[-1] != ';') continue;
             const char *v = p + 5;
             int i = 0;
-            while (i < 32 && isxdigit((unsigned char)v[i])) { out[i] = tolower(v[i]); i++; }
+            while (i < 32 && isxdigit((unsigned char)v[i])) {
+                out[i] = tolower(v[i]); i++;
+            }
             if (i == 32 && (v[32] == '\0' || v[32] == ';' || v[32] == ' ')) {
                 out[32] = '\0'; ok = true; break;
             }
@@ -157,14 +152,53 @@ static bool cookie_token(httpd_req_t *req, char out[33]) {  ///< parse "uvac=<32
     return ok;
 }
 
-static bool tab_header(httpd_req_t *req, char out[17]) {        ///< "X-Tab: <16 hex>"
+static bool _get_xtab(httpd_req_t *req, char out[17]) {       ///< "X-Tab: <16 hex>"
     char v[24];
     if (httpd_req_get_hdr_value_str(req, "X-Tab", v, sizeof(v)) != ESP_OK) return false;
     int i = 0;
-    while (i < 16 && isxdigit((unsigned char)v[i])) { out[i] = tolower(v[i]); i++; }
+    while (i < 16 && isxdigit((unsigned char)v[i])) {
+        out[i] = tolower(v[i]); i++;
+    }
     if (i != 16 || v[16] != '\0') return false;
     out[16] = '\0';
+   
     return true;
+}
+
+static uint32_t _get_tab_key(httpd_req_t *req, bool is_exec) {
+    char tok[33], tab[17];
+    if (!_get_cookie(req, tok) || !_get_xtab(req, tab)) {
+        httpd_resp_send_err(
+            req, HTTPD_400_BAD_REQUEST,
+            is_exec ? "No session (reload page)" : "Invalid Session");
+        return ESP_FAIL;
+    }
+    XServer *svr = static_cast<XServer*>(req->user_ctx);
+    return svr->tab_key(tok, tab, is_exec);
+}
+
+static esp_err_t handle_execute(httpd_req_t *req) {
+    int fd = httpd_req_to_sockfd(req);
+    if (fd < 0) return ESP_FAIL;
+
+    uint32_t key = _get_tab_key(req, true);
+    char q[48], v[16];
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "sid", v, sizeof(v)) == ESP_OK) {
+        key = strtoul(v, nullptr, 10);
+    }
+    if (!key) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing tab id");
+        return ESP_FAIL;
+    }
+    XDEBUG("xserver2 on core[%u] handle_execute fd=%d key=%x\n", xPortGetCoreID(), fd, key);
+    
+    XServer *svr       = static_cast<XServer*>(req->user_ctx);
+    char    *psram_buf = nullptr;
+    if (!svr->read_form(req, &psram_buf)) return ESP_FAIL;
+    svr->conn(key, fd, req->handle, psram_buf);
+    
+    return ESP_OK;
 }
 
 static void handle_overflow(void* arg, const char* failed_line) {
@@ -184,15 +218,7 @@ static void handle_overflow(void* arg, const char* failed_line) {
 }
 
 static esp_err_t handle_abort(httpd_req_t *req) {
-    XServer *svr = static_cast<XServer*>(req->user_ctx);
-
-    char tok[33], tab[17];
-    if (!cookie_token(req, tok) || !tab_header(req, tab)) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid Session");
-        return ESP_FAIL;
-    }
-    uint32_t key = svr->tab_key(tok, tab, false);           /// abort
-    
+    uint32_t key = _get_tab_key(req, false);
     ActorMsg x { MSG_FORTH_ABORT, SERVER_ACTOR_ID, key };   ///< sid field carries the key
     x.buf[0] = '\0';
     Sys.send(x, 0, true);
@@ -201,47 +227,19 @@ static esp_err_t handle_abort(httpd_req_t *req) {
     return ESP_OK;
 }
 
-static esp_err_t handle_execute(httpd_req_t *req) {
-    XServer *svr = static_cast<XServer*>(req->user_ctx);
-    int fd = httpd_req_to_sockfd(req);
-    if (fd < 0) return ESP_FAIL;
-
-    DEBUG("xserver2 on core[%u] handle_execute fd=%d\n", xPortGetCoreID(), fd);
-    
-    char tok[33], tab[17];
-    if (!cookie_token(req, tok) || !tab_header(req, tab)) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No session (reload page)");
-        return ESP_FAIL;
-    }
-    uint32_t key = svr->tab_key(tok, tab, true);
-    
-    char q[48], v[16];
-    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
-        httpd_query_key_value(q, "sid", v, sizeof(v)) == ESP_OK) key = strtoul(v, nullptr, 10);
-    if (!key) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing tab id");
-        return ESP_FAIL;
-    }
-    char* psram_buf = nullptr;
-    if (!svr->read_form_psram(req, &psram_buf)) return ESP_FAIL;
-    svr->conn(key, fd, req->handle, psram_buf);
-    
-    return ESP_OK;
-}
-
 // Explicitly updated to pull streaming data directly across the bus into PSRAM
-bool XServer::read_form_psram(httpd_req_t *req, char **out_psram_ptr) {
+bool XServer::read_form(httpd_req_t *req, char **out_psram_ptr) {
     int total = req->content_len;
-    DEBUG("xserver2 content len=%d\n", total);
     if (total <= 0 || total >= 8192) { 
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid Payload Length");
+        XLOG("[ERROR] xserver2 read buffer overflow or underflow len=%d\n", total);
         return false;
     }
 
     // 1. Allocate a flat character buffer directly on the 8 MB Octal PSRAM chip
     char* raw = (char*) heap_caps_malloc(total + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (raw == nullptr) {
-        LOG("[ERROR] Failed to allocate memory capsule (%x) in PSRAM!\n", total+1);
+        XLOG("[ERROR] xserver2 failed to allocate memory capsule (%x) in PSRAM!\n", total+1);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of External Memory");
         return false;
     }
@@ -261,15 +259,15 @@ bool XServer::read_form_psram(httpd_req_t *req, char **out_psram_ptr) {
     
     // 3. Simple null-termination. Pristine RAW plain-text content ready for the Coordinator iterator!
     raw[total] = '\0';
-    DEBUG("xserver2 raw = '%s'\n", raw);
-
     *out_psram_ptr = raw;
+    
+    XDEBUG("xserver2 payload='%s' (len=%d)\n", raw, total);
     return true;
 }
 
 void XServer::conn(uint32_t key, int sockfd, httpd_handle_t handle, char *buf) {
     uint32_t sid = Sys.alloc_id();            ///< per request
-    _coor->register_new_conn(key, sid, sockfd, handle, buf, strlen(buf));
+    _coor->register_conn(key, sid, sockfd, handle, buf, strlen(buf));
 }
 
 bool XServer::begin(ServerActor *actor, int priority) {
@@ -285,7 +283,7 @@ void XServer::setup() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(_ssid, _password);
     while (WiFi.status() != WL_CONNECTED) {
-        LOG("%c", '.');
+        XLOG("%c", '.');
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
@@ -301,7 +299,7 @@ void XServer::setup() {
         .method = HTTP_GET,
         .handler = [](httpd_req_t *req) {
             char tok[33], ck[96];
-            if (!cookie_token(req, tok)) {
+            if (!_get_cookie(req, tok)) {
                 uint8_t r[16];
                 esp_fill_random(r, sizeof(r));                    ///< hardware RNG, 128 bit
                 for (int i = 0; i < 16; i++) snprintf(tok + 2*i, 3, "%02x", r[i]);
@@ -332,14 +330,21 @@ void XServer::setup() {
     };
     httpd_register_uri_handler(_httpd, &abort_uri);
     
-    LOG("\nxserver2> live at http://%s on core[%u]\n",
+    XLOG("\nxserver2> live at http://%s on core[%u]\n",
         WiFi.localIP().toString().c_str(), config.core_id);
 }
 
 uint32_t XServer::tab_key(const char *tok, const char *tab, bool create) {
+    auto ct_eq = [](const char *a, const char *b) { ///< constant-time compare, 32 chars
+        uint8_t d = 0;
+        for (int i = 0; i < 32; i++) d |= (uint8_t)(a[i] ^ b[i]);
+        return d == 0;
+    };
     Tab *lru = &_tabs[0];
     for (auto &t : _tabs) {
-        if (t.key && ct_eq(t.tok, tok) && !strcmp(t.tab, tab)) { t.last = ++_tick; return t.key; }
+        if (t.key && ct_eq(t.tok, tok) && !strcmp(t.tab, tab)) {
+            t.last = ++_tick; return t.key;
+        }
         if (t.last < lru->last) lru = &t;
     }
     if (!create) return 0;
