@@ -11,18 +11,13 @@
 struct SessionState {
     uint32_t       sid        = 0;        ///< session id
     uint32_t       tid        = 0;        ///< task slot id
+    uint32_t       key        = 0;        ///< browser-tab id (abort + VM ownership)
     int            fd         = -1;       ///< file handle
     httpd_handle_t hd         = nullptr;  ///< HTTP session handle
     bool           is_active  = false;    ///< flag: session active (slot occupied)
-    bool           eof_wait   = false;    ///< flag: waiting for EOF
-    
     char           *mem_block = nullptr;  ///< session input buffer pointer (PSRAM)
     size_t         read_idx   = 0;        ///< buffer current pos
     size_t         total_len  = 0;        ///< buffer total length
-
-    uint32_t       fb_count   = 0;        ///< feedback counter
-    uint32_t       fb_total   = 0;        ///< feedback tally
-    uint32_t       key        = 0;        ///< browser-tab id (abort + VM ownership)
 };
 
 class ServerActor : public BaseActor {
@@ -105,27 +100,6 @@ private:
         }
     }
     
-    void check_and_handshake(int slot) {
-        SessionState &s = _ses[slot];
-        
-        /// Only proceed if we have received the EOL message
-        /// and all feedback packets have arrived
-        if (!s.eof_wait || (s.fb_count != s.fb_total)) return;
-        
-        /// Reset counters for the next line sequence step
-        s.fb_count = 0;
-        s.fb_total = 0;
-        s.eof_wait = false;
-
-        /// send ACK back to Forth Actor to release its lock state if any
-        ActorMsg ack{ MSG_FORTH_EOL_ACK, FORTH_ACTOR_ID, s.sid, s.tid };
-        ack.buf[0] = '\0';
-        Sys.send(ack);
-
-        /// 2. Move to the next string segment inside PSRAM
-        dispatch_next_line(slot);
-    }
-    
     void finish_slot(int slot, bool abort=false) {
         if (slot < 0 || !_ses[slot].is_active) return;
         
@@ -141,9 +115,9 @@ private:
         s.is_active = false;
         s.sid       = 0;
         s.tid       = 0;
+        s.key       = 0;
         s.fd        = -1;
         s.hd        = nullptr;
-        s.key       = 0;
     }
 
     void reject(httpd_handle_t hd, int fd) {
@@ -187,16 +161,13 @@ public:
         SessionState &s = _ses[slot];
         s.sid       = sid;
         s.tid       = (uint32_t)tid;
+        s.key       = key;
         s.fd        = fd;
         s.hd        = hd;
         s.is_active = true;
-        s.eof_wait  = false;
         s.mem_block = psram_buf; 
         s.total_len = len;
         s.read_idx  = 0;
-        s.fb_count  = 0;
-        s.fb_total  = 0;
-        s.key       = key;
         
         // Flush HTTP Chunked Transfer Encoding initial response headers line-by-line
         const char* headers =
@@ -236,27 +207,9 @@ public:
         SessionState &s = _ses[slot];
 
         switch (msg.type) {
-        case MSG_FORTH_FEEDBACK:
-            XLOG("  %s.%u << FB => '%s'", actor_name, msg.sid, (char*)msg.buf);
-            s.fb_count++;               /// Track arrival
-            send_chunk(s.hd, s.fd, msg.buf, strlen(msg.buf));
-            
-            // Check if this feedback was the last piece we were waiting for
-            check_and_handshake(slot);
-            break;
-
         case MSG_FORTH_EOL:
             XLOG("  %s.%u << EOL => EOL_ACK", actor_name, msg.sid);
-            // Forth VM completed its processing loop step and is waiting!
-            // 1. Force the LwIP network buffers to clear out onto the physical wire
-            // (Optional: flush hardware sockets if necessary)
-
-            // Forth VM has finished generating, record the target number it sent
-            s.fb_total = msg.feedback_sent;
-            s.eof_wait = true;
-
-            // Verify if all feedbacks are already here, or if we need to wait for late packets
-            check_and_handshake(slot);
+            dispatch_next_line(slot);
             break;
             
         case MSG_FORTH_DONE:
