@@ -292,6 +292,10 @@ XT_RET doPAUSE(XT_ARGS) {
 #endif // E4_TRAMP
 }
 
+#define JMP_YIELD()                                        \
+    JMP();                                                 \
+    if (vm.id && !((++vm.spin) & 0x3fff)) return doPAUSE(XT_PASS)
+
 #define SYNC(g)                                            \
     SPILL();                                               \
     { g; }                                                 \
@@ -332,13 +336,16 @@ static void run(XT_ARGS) {
 #if E4_RTOP
     RP = o.rp - RS;
 #endif // E4_RTOP
-    IP = 0;
     SP = o.sp - SS;
     o.sp[-1] = o.tos;
 }
 #endif // (E4_TRAMP && XT0_U32)
 
 void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
+    if (!IP) {                       /// * nothing to resume, treat as finished
+        vm.state = (vm.id && vm.ses) ? QUERY : STOP;
+        return;
+    }
     vm.state = NEST;
 
     IU *ip  = IP;                    /// Extract VM state into registers
@@ -434,14 +441,14 @@ constexpr Code g_rom[] = {
          *(t+1) = TOK(ip);                           /// * encode does> body token, and bail
          UNNEST()),
     CODE("_next",
-         if (GT(RTOP -= DU1, -DU1)) JMP();           ///> loop done? no, loop back
+         if (GT(RTOP -= DU1, -DU1)) { JMP_YIELD(); } ///> loop done? no, loop back
          else { RDROP(1); ip++; }),                  /// * yes, bail!
     CODE("_loop",
-         if (GT(RTOP2, RTOP += DU1)) JMP();          ///> loop done? no, loop back
+         if (GT(RTOP2, RTOP += DU1)) { JMP_YIELD(); }///> loop done? no, loop back
          else { RDROP(2); ip++; }),                  /// * pop off counters
     CODE("_bran", JMP()),                            ///< unconditional jmp
     CODE("_0bran",if (ZEQ(POP())) JMP(); else ip++), /// conditional jmp
-    CODE("vbran",
+    CODE("_vbran",
          IU tgt = *ip;                               /// * does> target token (0 if none)
          PUSH(OFF(ip + 1));                          /// * put param addr on tos
          if (tgt) ip = XT(tgt); else UNNEST()),      /// * jump to does> body, or return
@@ -645,7 +652,7 @@ constexpr Code g_rom[] = {
          CALL(vm, *w)),                              /// * execute word
     CODE("create",
          def_word(WORD());
-         add_xt("vbran");                            /// bran + offset field
+         add_xt("_vbran");                            /// bran + offset field
          add_iu(0)),
     IMMD("does>",  add_xt("_does>")),
     IMMD("to",                                       /// alter the value of a constant, i.e. 3 to x
