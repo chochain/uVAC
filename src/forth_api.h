@@ -43,10 +43,6 @@ int      forth_run(uint32_t tid, uint32_t sid,
 /// Valid only inside the output hook:
 uint32_t forth_cur_sid();                   ///< session id of the running slice (0 = closed/none)
 uint32_t forth_cur_tid();                   ///< its task id
-int      forth_fb_add();                    ///< count one output chunk sent for the current line
-
-/// Valid after forth_run() returned RUN_DONE:
-int      forth_fb(uint32_t tid);            ///< chunks sent for the line just finished
 
 #endif // USE_PTHREAD
 #endif // DO_MULTITASK
