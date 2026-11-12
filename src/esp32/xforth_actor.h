@@ -43,40 +43,6 @@ private:
         }
     }
     
-    static void feedback_orig(int len, const char *rst) {
-        const uint32_t sid = forth_cur_sid();       ///< running session slice
-        const uint32_t tid = forth_cur_tid();
-        if (!sid) return;                           /// * closed or aborted: drop output
-
-        BaseActor *svr = Sys.get_actor(SERVER_ACTOR_ID);
-        BaseActor *gui = Sys.get_actor(GUI_ACTOR_ID);
-
-        for (int off = 0; off < len; off += QUE_BUF_SZ - 1) {
-            int sz = std::min(len - off, QUE_BUF_SZ - 1);
-
-            ActorMsg fb { MSG_FORTH_FEEDBACK, SERVER_ACTOR_ID, sid, tid };
-            memcpy(fb.buf, rst + off, sz);
-            fb.buf[sz] = '\0';
-
-            int tries = FB_RETRY;
-            while (!Sys.send(fb, 0)) {              /// queue full: let the other workers drain it
-                if (!forth_cur_sid() || --tries <= 0) {
-                    XLOG("  %s.%u output dropped (queue full)\n", svr->actor_name, sid);
-                    return;                         /// not counted, so EOL handshake still balances
-                }
-                vTaskDelay(1);
-            }
-            forth_fb_add();                         /// per session, per line
-
-            if (!gui) continue;
-            ActorMsg g { MSG_GUI_TEXT, GUI_ACTOR_ID, sid, tid };
-            sprintf(g.buf, "%d> %s", tid, fb.buf);
-//            memcpy(g.buf, rst + off, sz);
-//            g.buf[sz] = '\0';
-            gui->receive(g);
-        }
-    }
-
 public:
     ForthActor(uint32_t id, const char *name) : BaseActor(id, name) {
         XLOG("VM> Forth Actor %u [%s] active on core[%d]\n", id, name, xPortGetCoreID());
@@ -89,8 +55,7 @@ public:
         switch (rc) {
         case RUN_DONE: {                        /// line finished
             ActorMsg eof { MSG_FORTH_EOL, SERVER_ACTOR_ID, msg.sid, msg.tid };
-            eof.buf[0]        = '\0';
-            eof.feedback_sent = forth_fb(msg.tid);
+            eof.buf[0] = '\0';
             if (!post(eof)) XLOG("  %s.%u EOL lost\n", actor_name, msg.sid);
             break;
         }
@@ -122,12 +87,6 @@ public:
             handle_run(msg);
             break;
         }
-        case MSG_FORTH_EOL_ACK:
-            XLOG("  %s.%u << EOL_ACK", actor_name, msg.sid);
-            // The Coordinator confirmed network buffers are clear.
-            // xsvr_actor already send MSG_FORTH_DONE to itself
-            break;
-
         case MSG_GUI_TOUCH:
             XDEBUG("  %s.%u << touch(%d, %d)", actor_name, msg.sid, msg.touch.x, msg.touch.y);
             break;
