@@ -127,6 +127,7 @@ struct ALIGNAS VM {
     uint32_t    key     = 0;       ///< owner: browser-tab id (0 = none)
     uint32_t    last    = 0;       ///< millis() of last release, for LRU eviction
     bool        busy    = false;   ///< a request is in flight on this VM
+    uint32_t    spin    = 0;
     
 #endif // USER_PTHREAD
 #endif // DO_MULTITASK
