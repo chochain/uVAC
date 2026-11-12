@@ -71,6 +71,7 @@ public:
     uint32_t   actor_id;
     BaseActor(uint32_t id, const char *name) : actor_id(id), actor_name(name) {}
     virtual ~BaseActor() {}
+    virtual void oob(uint32_t sid, const char *data, size_t len) {}
     virtual void receive(const ActorMsg &msg) = 0;
 };
 
