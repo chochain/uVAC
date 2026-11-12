@@ -28,6 +28,24 @@ private:
     static void feedback(int len, const char *rst) {
         const uint32_t sid = forth_cur_sid();       ///< running session slice
         const uint32_t tid = forth_cur_tid();
+        if (!sid) return;
+
+        BaseActor *svr = Sys.get_actor(SERVER_ACTOR_ID);
+        BaseActor *gui = Sys.get_actor(GUI_ACTOR_ID);
+
+        if (svr) svr->oob(sid, rst, len);           /// in order, no queue, no size limit
+        if (!gui) return;
+        for (int off = 0; off < len; off += QUE_BUF_SZ - 8) {
+            int sz = std::min(len - off, QUE_BUF_SZ - 8);
+            ActorMsg g { MSG_GUI_TEXT, GUI_ACTOR_ID, sid, tid };
+            snprintf(g.buf, QUE_BUF_SZ, "%d> %.*s", (int)tid, sz, rst + off);
+            gui->receive(g);                        /// * send to mailbox (cross-core)
+        }
+    }
+    
+    static void feedback_orig(int len, const char *rst) {
+        const uint32_t sid = forth_cur_sid();       ///< running session slice
+        const uint32_t tid = forth_cur_tid();
         if (!sid) return;                           /// * closed or aborted: drop output
 
         BaseActor *svr = Sys.get_actor(SERVER_ACTOR_ID);
@@ -78,7 +96,7 @@ public:
         }
         case RUN_MORE:                          /// paused: runnable right away
         case RUN_WAIT: {                        /// sleeping: don't spin the queue
-            if (rc == RUN_WAIT) vTaskDelay(1);
+            vTaskDelay(1);                      /// * give a little
             ActorMsg again = msg;
             again.type = MSG_FORTH_RESUME;
             if (!post(again)) XLOG("  %s.%u RESUME lost\n", actor_name, msg.sid);
