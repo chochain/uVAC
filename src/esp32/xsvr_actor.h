@@ -210,6 +210,15 @@ public:
         /// Begin your execution sequence loop [1]
         dispatch_next_line(slot);
     }
+    ///
+    ///> stream directory back to http (inter-core called directly from xforth_actor)
+    ///
+    void oob(uint32_t sid, const char *data, size_t len) override {
+        Guard g(_smtx);
+        int slot = find_slot(sid);
+        if (slot < 0) return;           /// closed or aborted: drop
+        send_chunk(_ses[slot].hd, _ses[slot].fd, data, len);
+    }
 
     void receive(const ActorMsg &msg) override {
         Guard g(_smtx);                 /// workers may deliver msgs of different sessions in parallel
