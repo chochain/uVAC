@@ -1,23 +1,20 @@
 # uVAC: UNIVAC 1108 Retro on ESP32-S3
 
-**A micro-UNIVAC for your desk: a multi-user, EXEC 8-flavoured Forth system on a $10 ESP32.**  This project explores the architectural elegance of 1960s mainframe computing by mapping historical **EXEC 8 Operating System concepts** directly onto modern **FreeRTOS symmetric multiprocessing (SMP)**, an asynchronous **Actor model network**, and a interactive resident **Forth Core acting as the primary Operating System interface**.
+A micro-UNIVAC for your desk: a multi-user, EXEC 8-flavoured Forth system on a $10 ESP32.
+
+This project explores the architectural elegance of 1960s mainframe computing by mapping historical **EXEC 8** Operating System concepts directly onto modern **FreeRTOS** symmetric multiprocessing (SMP), an asynchronous **Actor model** network, and a interactive resident **Forth Core** acting as the primary Operating System interface.
 
 Open a browser tab and you get your own private Forth session. Open another tab and you get another one. Every tab has its own data stack and its own place in the code, while all of them share one dictionary, one memory image and one tiny machine, the way users of a 1960s mainframe shared one big one.
 
-```
-uVAC v1.0 Initialized...
-> : xx 3 for i . cr pause next ;
-> xx
-2
-1
-0
-```
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_sesx4_snip01.png" width="800" />
+</picture>
 
 ---
 
 ## Why uVAC?
 
-### The idea
+### The idea?
 
 The UNIVAC 1108 and its operating system, **EXEC 8**, are an early example of a machine that did several things for several people at once. Batch jobs, interactive "demand" users at terminals, and real-time work all ran under one executive. Users never saw each other, yet they shared the same CPU, memory, files and system software.
 
@@ -119,7 +116,7 @@ uVAC intents to pick up that thread. The leased lines become browser tabs, the s
 ### State Diagram
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png" width="800" />
-  <img alt="Diagram description" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png">
+  <img alt="State Diagram" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png">
 </picture>
 
 One request's life: the `POST` body lands in PSRAM, the tab's VM is attached, and the coordinator feeds the input **one line at a time** to the Forth actor. Each line runs as one or more slices. When a line ends, the next one is dispatched. When the input is exhausted, the response is closed and the VM is released, with its **stack kept** for the next request.
@@ -127,7 +124,7 @@ One request's life: the `POST` body lands in PSRAM, the tab's VM is attached, an
 ### Sequence Diagram
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_sequence-with_actors.png" width="800" />
-  <img alt="Diagram description" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_sequence-with_actors.png">
+  <img alt="Sequence Diagram" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_sequence-with_actors.png">
 </picture>
 
 ---
