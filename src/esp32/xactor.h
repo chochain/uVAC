@@ -24,9 +24,7 @@
 
 enum ActorMsgType {
     MSG_FORTH_EXEC,           /// Forward individual raw command line to VM
-    MSG_FORTH_FEEDBACK,       /// Text streamed back dynamically by the Forth VM
     MSG_FORTH_EOL,            /// Generation checkpoint completed by Forth
-    MSG_FORTH_EOL_ACK,        /// Network Layer verification callback handshake
     MSG_FORTH_DONE,           /// Explicit macro execution processing complete
     MSG_FORTH_ABORT,          /// Emergency priority drop request
     MSG_SESSION_TIMEOUT,      /// Stagnation safety event
@@ -48,10 +46,6 @@ struct ActorMsg {
     union {
         char buf[QUE_BUF_SZ];   /// Inline 128-byte data transmission window
         struct {
-            uint32_t xx0;       /// * so, buffer can carry a few bytes '\0'
-            uint32_t feedback_sent;
-        };
-        struct {
             uint32_t xx1;
             int16_t  x;
             int16_t  y;
@@ -71,6 +65,7 @@ public:
     uint32_t   actor_id;
     BaseActor(uint32_t id, const char *name) : actor_id(id), actor_name(name) {}
     virtual ~BaseActor() {}
+    virtual void oob(uint32_t sid, const char *data, size_t len) {}
     virtual void receive(const ActorMsg &msg) = 0;
 };
 
