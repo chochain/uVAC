@@ -283,26 +283,17 @@ static void run(XT_ARGS) {
 }
 #endif // (E4_TRAMP && XT0_U32)
 
-void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
-    if (!IP) {                       /// * nothing to resume, treat as finished
-        vm.state = (vm.id && vm.ses) ? QUERY : STOP;
-        return;
-    }
-    vm.state = NEST;
-
-    IU *ip  = IP;                    /// Extract VM state into registers
+///> common launcher: load VM state into registers, run fp, let doSTOP/doPAUSE spill back
+static _INLINE_ void launch(VM &vm, FPTR fp, IU *ip) {
     DU *sp  = SS + SP;
-    DU  tos = TOS;                   /// Direct load. Unguarded garbage behavior if empty
+    DU  tos = TOS;                  /// Direct load. Unguarded garbage behavior if empty
 #if E4_NOS
     DU  nos = NOS;
 #endif // E4_NOS
 #if E4_RTOP
     DU *rp  = RS + RP;
 #endif // E4_RTOP
-    DEBUG("\nXT0=%zx *IP=[%x,%x] ", Code::XT0, *ip, *(ip+1));
-    DEBUG("nest(%08x) sp%d, rp%d\n", *ip, DEPTH, (int)RDEPTH);
 
-    FPTR fp = NEXT_FP;
 #if E4_TRAMP
     Ret r = fp(XT_PASS);            /// * trampoline record
 #if E4_RTOP
@@ -315,34 +306,26 @@ void nest(VM& vm) {                  ///< inner-interpreter i.e. doLIST
 #endif // E4_TRAMP
 }
 
+void nest(VM& vm) {                 ///< inner-interpreter i.e. doLIST
+    if (!IP) {                      /// * nothing to resume, treat as finished
+        vm.state = (vm.id && vm.ses) ? QUERY : STOP;
+        return;
+    }
+    vm.state = NEST;
+    IU  *ip = IP;
+    FPTR fp = NEXT_FP;              /// * consumes *ip++
+    DEBUG("nest(%08x) sp%d, rp%d\n", *ip, DEPTH, (int)RDEPTH);
+    
+    launch(vm, fp, ip);
+}
+
 void CALL(VM &vm, const Code &c) {
     if (c.is_udf()) {
         RS[RP++] = TOK(gStop);
         IP = (IU*)c.xt;
         nest(vm);
     }
-    else {
-        IU *ip  = gStop;
-        DU *sp  = SS + SP;
-        DU  tos = TOS;
-#if E4_NOS
-        DU  nos = NOS;
-#endif // E4_NOS
-#if E4_RTOP
-        DU *rp  = RS + RP;
-#endif // E4_RTOP
-        
-#if E4_TRAMP
-        Ret r = c.xt(XT_PASS);
-#if E4_RTOP
-        run(r.ip, r.sp, r.tos, r.rp, vm);
-#else  // E4_RTOP
-        run(r.ip, r.sp, r.tos, vm);
-#endif // E4_RTOP
-#else  // E4_TRAMP
-        c.xt(XT_PASS);
-#endif // E4_TRAMP
-    }
+    else launch(vm, c.xt, gStop);   /// * primitive: run it, then NEXT lands on doSTOP
 }
 
 ///====================================================================
