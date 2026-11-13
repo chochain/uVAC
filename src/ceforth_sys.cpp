@@ -301,7 +301,7 @@ static const struct { const char *name; see_op op; } SEE_OP[] = {
     { "_;",    EXIT  },                     ///< end of word
     { "_lit",  LIT   },                     ///< [_lit][value]
     { "_var",  VAR   },                     ///< [_var][data...]
-    { "vbran", VBRAN },                     ///< [vbran][does> token][data...]
+    { "_vbran",VBRAN },                     ///< [vbran][does> token][data...]
     { "_str",  STR   },                     ///< [_str][len16, chars, 0, pad]
     { "_dotq", DOTQ  },                     ///< [_dotq][len16, chars, 0, pad]
     { "_bran", BRAN  }, { "_0bran", BRAN }, ///< [op][target token]
