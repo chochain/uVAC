@@ -15,7 +15,8 @@
 #define QUE_WAIT_TICKS  5
 
 #define XLOG(fmt, ...)   Serial.printf(fmt, __VA_ARGS__)
-#define XDEBUG(fmt, ...) Serial.printf(fmt, __VA_ARGS__)
+//#define XDEBUG(fmt, ...) Serial.printf(fmt, __VA_ARGS__)
+#define XDEBUG(fmt, ...)
 
 // Static Global Target Registry IDs
 #define SERVER_ACTOR_ID 1
