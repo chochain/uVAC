@@ -1,6 +1,6 @@
-# uVAC
+# uVAC: UNIVAC 1108 Retro on ESP32-S3
 
-**A micro-UNIVAC for your desk: a multi-user, EXEC 8-flavoured Forth system on a $10 ESP32.**
+**A micro-UNIVAC for your desk: a multi-user, EXEC 8-flavoured Forth system on a $10 ESP32.**  This project explores the architectural elegance of 1960s mainframe computing by mapping historical **EXEC 8 Operating System concepts** directly onto modern **FreeRTOS symmetric multiprocessing (SMP)**, an asynchronous **Actor model network**, and a interactive resident **Forth Core acting as the primary Operating System interface**.
 
 Open a browser tab and you get your own private Forth session. Open another tab and you get another one. Every tab has its own data stack and its own place in the code, while all of them share one dictionary, one memory image and one tiny machine, the way users of a 1960s mainframe shared one big one.
 
@@ -81,30 +81,48 @@ uVAC intents to pick up that thread. The leased lines become browser tabs, the s
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph Browser
-    T1[Tab A] --- T2[Tab B] --- T3[Tab C]
-  end
-  T1 & T2 & T3 -- "POST /execute\nPOST /abort" --> H[httpd]
-  H -->|register_conn| S[ServerActor]
-  S -->|EXEC| Q[(Message queue)]
-  Q --> W[Workers on core 0]
-  W --> F[ForthActor]
-  F -->|forth_run slice| E[Forth engine\nshared dictionary]
-  E -. "output chunks\n(direct to socket)" .-> Browser
-  F -->|RESUME / EOL| Q
-  W --> S
-  F -.-> G[GUI actor / LVGL]
-```
+**uVAC** models this exact hardware topology across the ESP32-S3's dual-core Xtensa processor, utilizing a **Forth core** as the resident OS supervisor:
 
-One request's life: the `POST` body lands in PSRAM, the tab's VM is attached, and the coordinator feeds the input **one line at a time** to the Forth actor. Each line runs as one or more slices. When a line ends, the next one is dispatched. When the input is exhausted, the response is closed and the VM is released, with its **stack kept** for the next request.
+```
+                  ┌───────────────────────────────────────┐
+                  │          WEB INTERFACE (HTML5/HTMX)   │
+                  └───────────────────┬───────────────────┘
+                                      │ (Wi-Fi Payload)
+                                      ▼
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │ CORE 0: CENTRAL MAINFRAME ENGINE                                         │
+    │                                                                          │
+    │  ┌───────────────────────┐             ┌──────────────────────────────┐  │
+    │  │  XServer (Symbiont)   │ ──[Alloc]──>│ 8MB Octal PSRAM Memory Bank  │  │
+    │  └───────────────────────┘             └──────────────────────────────┘  │
+    │              │                                  │                        │
+    │              │ (Parsed Card Streams)            │ (Capsule Data)         │
+    │              ▼                                  ▼                        │
+    │  ┌────────────────────────────────────────────────────────────────────┐  │
+    │  │  ForthActor Engine (Main OS & Central Processing Unit / forth_vm)  │  │
+    │  └────────────────────────────────────────────────────────────────────┘  │
+    └──────────────────────────────────┬───────────────────────────────────────┘
+                                       │ (Async Inter-Core Mailbox Msg)
+                                       ▼
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │ CORE 1: INPUT/OUTPUT CONTROLLER (IOC)                                    │
+    │                                                                          │
+    │  ┌────────────────────────────────────────────────────────────────────┐  │
+    │  │  XGL Renderer Actor (LVGL v8 / High-Speed DMA / ST7701S RGB Panel) │  │
+    │  └────────────────────────────────────────────────────────────────────┘  │
+    │              │ (9MHz Bus Optimization)                                   │
+    │              ▼                                                           │
+    │  [480x480 Smart Display Console] <──[Hardware Touch Engine (GT911)]      │
+    └──────────────────────────────────┴───────────────────────────────────────┘
+```
 
 ### State Diagram
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png" width="800" />
   <img alt="Diagram description" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png">
 </picture>
+
+One request's life: the `POST` body lands in PSRAM, the tab's VM is attached, and the coordinator feeds the input **one line at a time** to the Forth actor. Each line runs as one or more slices. When a line ends, the next one is dispatched. When the input is exhausted, the response is closed and the VM is released, with its **stack kept** for the next request.
 
 ### Sequence Diagram
 <picture>
@@ -117,6 +135,12 @@ One request's life: the `POST` body lands in PSRAM, the tab's VM is attached, an
 ## How it compares
 
 uVAC borrows ideas from several worlds. None of these are one-to-one equivalents, but they help locate it.
+
+### Architectural Mappings:
+* **EXEC 8 Symbionts**: The `XServer` asynchronous routing engine acts exactly like an 1108 input symbiont. It ingests raw HTTP plain-text network scripts from a custom HTMX web frontend, stream-buffers them straight into **8MB of external Octal PSRAM capsules**, and spools them line-by-line out of the core processor's critical path into the Forth OS environment.
+* **The Central Processor (CPU 0)**: Pinned to **Core 0**. Runs the central asynchronous `ActorSystem` worker thread-pool executing the low-level processing engine (`ForthActor`).
+* **The Main OS Interface (Forth Core)**: Integrated directly as the underlying execution machine (`forth_vm`). Forth words map low-level hardware configurations (`mcu_actor.h`), state control loops, and dictionary operations, serving as the shell, macro interpreter, and direct supervisor of the mainframe state.
+* **Input/Output Controller (IOC)**: Pinned strictly to **Core 1**. Running at a higher FreeRTOS priority, it handles the **ST7701S Parallel RGB line timing** and **GT911 touch telemetry** via the LVGL graphics stack. This prevents screen refreshing overhead from introducing latency into core calculations or Forth word execution.
 
 ### EXEC 8 concepts → uVAC
 
@@ -133,6 +157,13 @@ uVAC borrows ideas from several worlds. None of these are one-to-one equivalents
 | Moore's 1970 Forth: one task per leased line, CPU shared among them | One session VM per browser tab, slices shared by the tasker |
 
 It is a tribute and a teaching model, not an emulation. uVAC does not run 1108 code, and it has no 36-bit words, no Fieldata and no `@RUN` card images.
+
+TODO: Workload Scheduling Modes
+uVAC simulates the three historical runtime priorities managed by the classic UNIVAC EXEC 8 kernel using a customized `job_class_t` matrix directed through the Forth OS:
+
+1. **`JOB_BATCH` (Background Processing)**: Submit-and-collect workloads. Code blocks are spooled quietly into background PSRAM queues without holding open interactive communication pipelines.
+2. **`JOB_DEMAND` (Time-Sharing Interface)**: Low-latency interactive tasks. This drives the real-time web terminal console interface, giving developers a direct interactive REPL loop into the resident Forth OS.
+3. **`JOB_REALTIME` (Preemptive Interruption)**: High-priority execution tokens. Utilizing the custom actor pipeline's `send_priority()` methods, these jobs bypass the normal FIFO dispatch queues to cut straight to the front of the processing stream.
 
 ### Versus other ways to get a REPL on an ESP32
 
@@ -221,19 +252,24 @@ Being clear about what uVAC is not:
 
 ## Source map
 
-| File | Role |
-|---|---|
-| `uvac.ino` | Boot: workers, actors, WiFi, web server |
-| `src/config.h` | Build configuration and platform macros |
-| `src/ceforth.{h,cpp}`, `ceforth_sys.cpp` | The eForth core and system words |
-| `src/ceforth_coop.cpp` | Cooperative tasker, engine lock, session and VM pool |
-| `src/ceforth_task.cpp` | VM reset and the pthread alternative |
-| `src/e4_run.S` | Xtensa trampoline loop |
-| `src/forth_api.h` | The narrow API between actors and the Forth engine |
-| `src/esp32/xactor.h` | Message types, queue and worker pool (`ActorSystem`) |
-| `src/esp32/xserver2.{h,cpp}` | HTTP server, HTMX page, cookies and tab ids |
-| `src/esp32/xsvr_actor.h` | `ServerActor`: session coordinator, line feeder, response closer |
-| `src/esp32/xforth_actor.h` | `ForthActor`: runs slices, posts RESUME and EOL, streams output |
+```
+├── uvac.ino                   # Main entry point; boots Actor System & subsystems
+├── src/
+│   ├── config.h               # eForth build configuration
+│   ├── ceforth.h/cpp          # eForth core
+│   ├── ceforth_sys.cpp        # eForth IO subsystem
+│   ├── ceforth_task.cpp       # eForth multi-tasking subsystem
+│   ├── ceforth_coop.cpp       # eForth cooperative subsystem
+│   ├── e4_run.S               # Xtensa trampoline loop
+│   ├── forth_api.h            # narrow API between actors and the Forth engine
+│   └── esp32/
+│       ├── uvac.h             # uVAC ESP32 implementation interace
+│       ├── xactor.h/cpp       # Central Actor System framework & worker dispatch engines
+│       ├── xserver2.h/cpp     # esp_http_server implementation & PSRAM buffering
+│       ├── xsvr_actor.h       # session coordinator, line feeder, response closer
+│       ├── xforth_actor.h     # Wrapper executing the primary Forth OS VM & routing logs
+│       └── xgl_actor.h/cpp    # LVGL framework initialization & parallel RGB panel configs
+```
 
 ---
 
