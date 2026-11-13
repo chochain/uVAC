@@ -78,12 +78,12 @@ public:
     void receive(const ActorMsg &msg) override {
         switch (msg.type) {
         case MSG_FORTH_EXEC:
-            XLOG("  %s.%u << %s", actor_name, msg.sid, "EXEC");
+            XDEBUG("  %s.%u << %s", actor_name, msg.sid, "EXEC");
             handle_run(msg);
             break;
             
         case MSG_FORTH_RESUME: {
-            XLOG("  %s.%u << %s", actor_name, msg.sid, "RESUME");
+            XDEBUG("  %s.%u << %s", actor_name, msg.sid, "RESUME");
             handle_run(msg);
             break;
         }

@@ -1,4 +1,5 @@
 /// -*- mode: c++ -*-
+///
 #ifndef _XSVR_ACTOR_H
 #define _XSVR_ACTOR_H
 
@@ -208,24 +209,24 @@ public:
 
         switch (msg.type) {
         case MSG_FORTH_EOL:
-            XLOG("  %s.%u << EOL => EOL_ACK", actor_name, msg.sid);
+            XDEBUG("  %s.%u << EOL => EOL_ACK", actor_name, msg.sid);
             dispatch_next_line(slot);
             break;
             
         case MSG_FORTH_DONE:
-            XLOG("  %s.%u << DONE", actor_name, msg.sid);
+            XDEBUG("  %s.%u << DONE", actor_name, msg.sid);
             clean(s, "");
             finish_slot(slot, false);
             break;
 
         case MSG_FORTH_ABORT:
-            XLOG("  %s.%u << ABORT", actor_name, msg.sid);
+            XDEBUG("  %s.%u << ABORT", actor_name, msg.sid);
             clean(s, "\r\n[SYSTEM INTERRUPT] Execution Aborted via Panel.\r\n");
             finish_slot(slot, true);
             break;
 
         default:
-            XDEBUG("  %s.%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
+            XLOG("  %s.%u << Unknown msg.type=%d\n", actor_name, msg.sid, msg.type);
             break;
         }
     }
