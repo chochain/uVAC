@@ -123,11 +123,6 @@ static const char HTML_INDEX[] PROGMEM = R"XX(<!DOCTYPE html>
 </html>
 )XX";
 
-struct HttpContext {
-    httpd_handle_t hd;
-    int            fd;
-};
-
 static bool _get_cookie(httpd_req_t *req, char out[33]) {      ///< parse "uvac=<32 hex>"
     size_t n = httpd_req_get_hdr_value_len(req, "Cookie");
     if (n == 0 || n > 400) return false;
@@ -199,22 +194,6 @@ static esp_err_t handle_execute(httpd_req_t *req) {
     svr->conn(key, fd, req->handle, psram_buf);
     
     return ESP_OK;
-}
-
-static void handle_overflow(void* arg, const char* failed_line) {
-    auto* ctx = static_cast<HttpContext*>(arg);
-    if (!ctx) return;
-
-    const char* err = "<div style='color:#ffaa00;'>\r\n[SYSTEM ERROR] Pipeline Saturated: Script truncated, engine busy.<div>";
-    char hdr[16];
-    snprintf(hdr, sizeof(hdr), "%X\r\n", strlen(err));
-    
-    httpd_handle_t hd = ctx->hd;
-    int            fd = ctx->fd;
-    
-    httpd_socket_send(hd, fd, hdr, strlen(hdr), 0);
-    httpd_socket_send(hd, fd, err, strlen(err), 0);
-    httpd_socket_send(hd, fd, "\r\n", 2, 0);
 }
 
 static esp_err_t handle_abort(httpd_req_t *req) {
