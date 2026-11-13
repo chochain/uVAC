@@ -7,7 +7,8 @@ This project explores the architectural elegance of 1960s mainframe computing by
 Open a browser tab and you get your own private Forth session. Open another tab and you get another one. Every tab has its own data stack and its own place in the code, while all of them share one dictionary, one memory image and one tiny machine, the way users of a 1960s mainframe shared one big one.
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_sesx4_snip01.png" width="800" />
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/master/docs/img/uvac_sesx4_snip01.png" width="800" />
+  <img alt="Flash" src="https://github.com/chochain/uvac/blob/master/docs/img/uvac_sesx4_snip01.png" width="800" />
 </picture>
 
 ---
@@ -115,16 +116,16 @@ uVAC intents to pick up that thread. The leased lines become browser tabs, the s
 
 ### State Diagram
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png" width="800" />
-  <img alt="State Diagram" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_request_to_response_states.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/master/docs/img/uvac_request_to_response_states.png" width="800" />
+  <img alt="State Diagram" src=""https://github.com/chochain/uvac/blob/master/docs/img/uvac_request_to_response_states.png">
 </picture>
 
 One request's life: the `POST` body lands in PSRAM, the tab's VM is attached, and the coordinator feeds the input **one line at a time** to the Forth actor. Each line runs as one or more slices. When a line ends, the next one is dispatched. When the input is exhausted, the response is closed and the VM is released, with its **stack kept** for the next request.
 
 ### Sequence Diagram
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/main/docs/img/uvac_sequence-with_actors.png" width="800" />
-  <img alt="Sequence Diagram" src=""https://github.com/chochain/uvac/blob/main/docs/img/uvac_sequence-with_actors.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/chochain/uvac/blob/master/docs/img/uvac_sequence-with_actors.png" width="800" />
+  <img alt="Sequence Diagram" src=""https://github.com/chochain/uvac/blob/master/docs/img/uvac_sequence-with_actors.png">
 </picture>
 
 ---
