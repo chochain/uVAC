@@ -18,12 +18,13 @@
 #define XDEBUG(fmt, ...) Serial.printf(fmt, __VA_ARGS__)
 
 // Static Global Target Registry IDs
-#define SERVER_ACTOR_ID 1     // Central Traffic Cop Actor ID
+#define SERVER_ACTOR_ID 1
 #define FORTH_ACTOR_ID  2
 #define GUI_ACTOR_ID    3
 
 enum ActorMsgType {
     MSG_FORTH_EXEC,           /// Forward individual raw command line to VM
+    MSG_FORTH_RESUME,         /// Continue a session slice that paused or slept (no payload)
     MSG_FORTH_EOL,            /// Generation checkpoint completed by Forth
     MSG_FORTH_DONE,           /// Explicit macro execution processing complete
     MSG_FORTH_ABORT,          /// Emergency priority drop request
@@ -32,19 +33,18 @@ enum ActorMsgType {
     MSG_GUI_DRAW,             /// Forward string outputs straight to the LVGL terminal
     MSG_GUI_TOUCH,            /// Touch coordinate packets dispatched from Core 1 to Core 0
     MSG_SYS_TELEMETRY,        /// Periodic hardware memory metric tracking frame
-    MSG_FORTH_RESUME          /// Continue a session slice that paused or slept (no payload)
 };
 
 struct ActorMsg {
     ActorMsgType   type;
-    uint32_t       target_id;   /// Destination Actor target register
-    uint32_t       sid;         /// Session ID tracking tag
-    uint32_t       tid;         /// Forth Task/VM Pool id
-    int            fd;          /// Socket file descriptor tracking hook
-    httpd_handle_t hd;          /// Webserver process descriptor link
+    uint32_t       target_id; /// Destination Actor target register
+    uint32_t       sid;       /// Session ID tracking tag
+    uint32_t       tid;       /// Forth Task/VM Pool id
+    int            fd;        /// Socket file descriptor tracking hook
+    httpd_handle_t hd;        /// Webserver process descriptor link
     
     union {
-        char buf[QUE_BUF_SZ];   /// Inline 128-byte data transmission window
+        char buf[QUE_BUF_SZ]; /// Inline 128-byte data transmission window
         struct {
             uint32_t xx1;
             int16_t  x;
