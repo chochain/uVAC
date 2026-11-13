@@ -189,13 +189,6 @@ struct ALIGNAS VM {
 #define RELOAD() ({ sp = SS + SP; RRELOAD(); tos = TOS; })            /**< memory => registers  */
 #endif // E4_NOS
 ///@}
-///@name Code flag masking options
-///@{
-#define UDF_ATTR   0x0001   /** user defined word    */
-#define IMM_ATTR   0x0002   /** immediate word       */
-#define EXT_FLAG   0x8000   /** prim/xt/pfa selector */
-#define UDF_DICT   0x8000   /** user defined word    */
-///@}
 ///@name return types for trampoline/tailcall control
 ///@{
 #if E4_TRAMP
@@ -209,6 +202,13 @@ struct  Ret        { IU *ip; DU *sp; DU tos; };
 #define XT_RET     void*
 #endif // E4_TRAMP
 typedef XT_RET     (*FPTR)(IU *ip, DU *sp, ARGS, VM &vm); ///< trampoline or tail-call (returns NEXT)
+///@}
+///@name Code flag masking options
+///@{
+#define UDF_ATTR   0x0001   /** user defined word    */
+#define IMM_ATTR   0x0002   /** immediate word       */
+#define EXT_FLAG   0x8000   /** prim/xt/pfa selector */
+#define UDF_DICT   0x8000   /** user defined word    */
 ///@}
 ///@name Code class
 ///@brief - basic struct of dictionary entries
