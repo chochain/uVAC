@@ -132,6 +132,7 @@ const Code *find(const char *s) {
             s, w->is_udf() ? "dict" : "g_rom", i, (UFP)w->xt, w->attr, w->name);
     }
     else DEBUG("find(%s) => %s\n", s, "N/A");
+    
     return w;
 }
 ///@}
@@ -796,9 +797,9 @@ void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
         if ((int)vm.ss.idx < 0) {                /// * underflow guard
             vm.ss.idx  = 0;
             vm.compile = false;
-            pstr("stack underflow", CR);
-            fin_drop();
             vm.state   = QUERY;
+            fin_drop();
+            pstr("stack underflow", CR);
         }
         return;
     }
@@ -807,10 +808,10 @@ void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
     DU  n   = parse_number(idiom, *BASE, &err);
     if (err) {                           /// * not number
         pstr(idiom); pstr("? ", CR);     ///> display error prompt
-        if (errno) pstr(strerror(errno), CR);   ///> and error description
+        if (errno) pstr(strerror(errno), CR); ///> and error description
         vm.compile = false;              ///> reset to interpreter mode
-        fin_drop();
-        vm.state   = QUERY;
+        vm.state   = QUERY;              ///> skip the entire input buffer
+        fin_drop();                      /// * skip the rest of the line
         return;
     }
     DEBUG(" => %d\n", n);
