@@ -131,7 +131,7 @@ const Code *find(const char *s) {
         DEBUG("find(%s) => %s[%d]:%08zx attr=%d %s\n",
             s, w->is_udf() ? "dict" : "g_rom", i, (UFP)w->xt, w->attr, w->name);
     }
-    else { DEBUG("find(%s) => %s\n", s, "N/A"); }
+    else DEBUG("find(%s) => %s\n", s, "N/A");
     return w;
 }
 ///@}
@@ -199,11 +199,10 @@ void s_quote(XT_REFS, bool dotq=false) {
 ///          * 32-bit Param ref       Ir/Dr = 3.1M/0.8M (843ms)
 ///
 XT_RET doSTOP(XT_ARGS) {
-#if DO_MULTITASK && !USE_PTHREAD
-    if (vm.id) vm.state = vm.ses ? QUERY : STOP;  /// * session shell stays; plain task frees its slot
-#else
-    if (vm.id) vm.state = STOP;       /// * finish task, free slot
-#endif
+#if DO_MULTITASK
+    vm.state = (vm.id && !vm.ses) ? STOP : QUERY; /// * session shell stays; plain task frees its slot
+#endif // DO_MULTITASK
+    
 #if E4_TRAMP
     IP = 0;                           /// * vm.IP = 0 stops the VM
     return Ret{ 0, sp, PASS };        /// * ip==0 ends the trampoline
@@ -258,9 +257,10 @@ XT_RET doPAUSE(XT_ARGS) {
 }
 #endif // USE_PTHREAD
 
-#else  // DO_MULTITASK
+#else  // !DO_MULTITASK
 #define SYNC(g)     { g; }
 #define WAIT_FOR(cond)
+#define JMP_YIELD() JMP()
 
 #endif // DO_MULTITASK
 
@@ -307,10 +307,12 @@ static _INLINE_ void launch(VM &vm, FPTR fp, IU *ip) {
 }
 
 void nest(VM& vm) {                 ///< inner-interpreter i.e. doLIST
+#if DO_MULTITASK    
     if (!IP) {                      /// * nothing to resume, treat as finished
-        vm.state = (vm.id && vm.ses) ? QUERY : STOP;
+        vm.state = (vm.id && !vm.ses) ? STOP : QUERY;
         return;
     }
+#endif // DO_MULTITASK    
     vm.state = NEST;
     IU  *ip = IP;
     FPTR fp = NEXT_FP;              /// * consumes *ip++
@@ -666,7 +668,7 @@ constexpr Code g_rom[] = {
     CODE("here",  PUSH(HERE)),                               /// offset of pmem top
     IMMD("'",     const Code *w = find(WORD());
          if (w) PUSH(w->is_udf() ? (DU)OFF(w->pfa) : (DU)TOK(w->xt))),   /// udf: body offset, prim: code token
-    CODE(".s",    SPILL(); ss_dump(vm, true)),
+    CODE(".s",    SPILL(); ss_dump(vm)),
     CODE("words", words()),
     CODE("see",
          const Code *w = find(WORD());
@@ -706,7 +708,7 @@ constexpr Code g_rom[] = {
     CODE("rnd",   PUSH(RND())),                             /// generate random number
     CODE("bye",   vm.state=STOP),
     /// @}
-    CODE("boot",  dict.clear(); pmem.clear()),
+    CODE("boot",  if (!vm.id) { dict.clear(); pmem.clear(); }),
 };
 constexpr int  g_romsz = sizeof(g_rom)/sizeof(Code);
 ///@}
@@ -790,14 +792,13 @@ void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
             add_w(w);                            /// * add to colon word
         }
         else CALL(vm, *w);                       /// * execute word
+        
         if ((int)vm.ss.idx < 0) {                /// * underflow guard
             vm.ss.idx  = 0;
             vm.compile = false;
             pstr("stack underflow", CR);
-#if DO_MULTITASK && !USE_PTHREAD
-            if (vm.ses) { fin_drop(); vm.state = QUERY; return; }
-#endif
-            vm.state = STOP;
+            fin_drop();
+            vm.state   = QUERY;
         }
         return;
     }
@@ -806,16 +807,10 @@ void forth_core(VM& vm, const char *idiom) {     ///> aka QUERY
     DU  n   = parse_number(idiom, *BASE, &err);
     if (err) {                           /// * not number
         pstr(idiom); pstr("? ", CR);     ///> display error prompt
-        pstr(strerror(errno), CR);       ///> and error description
+        if (errno) pstr(strerror(errno), CR);   ///> and error description
         vm.compile = false;              ///> reset to interpreter mode
-#if DO_MULTITASK && !USE_PTHREAD
-        if (vm.ses) {                    /// * session: keep the slot, just drop the line
-            fin_drop();
-            vm.state = QUERY;
-            return;
-        }
-#endif
-        vm.state   = STOP;               ///> skip the entire input buffer
+        fin_drop();
+        vm.state   = QUERY;
         return;
     }
     DEBUG(" => %d\n", n);
