@@ -8,19 +8,8 @@
 #include <stdint.h>
 #include "config.h"
 
-#if DO_MULTITASK
-#if USE_PTHREAD
-#define FORTH_LOCK()
-#define FORTH_UNLOCK()
-
-#else // !USE_PTHREAD
-///@name Web sessions as tasks (cooperative tasker)
-///@{
-bool    forth_lock(int ms);                 ///< engine lock (recursive), ms<0 = wait forever
-void    forth_unlock(bool vm0=false);
-#define FORTH_LOCK()     forth_lock(-1)
-#define FORTH_UNLOCK(f)  forth_unlock(f)
-///@}
+///====================================================================
+#if DO_MULTITASK && !USE_PTHREAD
 
 enum {                                      ///< forth_run() results
     RUN_WAIT =  2,                          ///< sleeping (ms), call again later
@@ -44,6 +33,5 @@ int      forth_run(uint32_t tid, uint32_t sid,
 uint32_t forth_cur_sid();                   ///< session id of the running slice (0 = closed/none)
 uint32_t forth_cur_tid();                   ///< its task id
 
-#endif // USE_PTHREAD
-#endif // DO_MULTITASK
+#endif // DO_MULTITASK && !USE_PTHREAD
 #endif // _FORTH_API_H
