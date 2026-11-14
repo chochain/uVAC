@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdint.h>     // uintxx_t
 #include "config.h"     // configuation and cross-platform support
-#include "forth_api.h"  // web session management for cooperative multitasking
 
 #ifndef XT0_U32
   #if __SIZEOF_POINTER__ == 8
@@ -53,7 +52,7 @@ struct List {
     void readonly_below(int i) { ro = i; }
 
     T pop()     _INLINE_ { return v[--idx]; }
-    T push(T t) _INLINE_ { return v[idx++] = t; }      ///< deep copy element
+    T push(T t) _INLINE_ { return v[idx++] = t; }    ///< deep copy element
     
     void push(T *a, int n) _INLINE_ { for (int i=0; i<n; i++) push(*(a+i)); }
     void merge(List& a)    _INLINE_ { for (int i=0; i<a.idx; i++) push(a[i]); }
@@ -69,12 +68,23 @@ struct List {
 ///
 ///> VM context (single task)
 ///
-#if (DO_MULTITASK && USE_PTHREAD)
+#if DO_MULTITASK
+#if (ARDUINO || ESP32)
+#define  E4_FREERTOS  1
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+typedef  SemaphoreHandle_t     R_MUTEX;
+
+#else // !(ARDUINO || ESP32): x86, ARM Linux, macOS...
+#define  E4_FREERTOS  0
 #include <mutex>
 #include <condition_variable>
-typedef  mutex              MUTEX;
-typedef  condition_variable COND_VAR;
-#endif // (DO_MULTITASK && USE_PTHREAD)
+typedef  recursive_timed_mutex R_MUTEX;
+typedef  mutex                 MUTEX;
+typedef  condition_variable    COND_VAR;
+
+#endif // (ARDUINO || ESP32)
+#endif // DO_MULTITASK
 
 typedef enum { STOP=0, HOLD, QUERY, NEST } vm_state;
 struct ALIGNAS VM {
@@ -88,6 +98,7 @@ struct ALIGNAS VM {
     vm_state state   = STOP;       ///< VM status
     IU       base    = 0;          ///< numeric radix (a pointer)
     bool     compile = false;      ///< compiler flag
+    bool     ses     = false;      ///< true: web-session shell (owns a text line, not just a word)
 
 #if DO_MULTITASK
     int      wake    = 0;          ///< ms timestamp to wake at (0 = not sleeping)
@@ -121,7 +132,6 @@ struct ALIGNAS VM {
 #else // !USE_PTHREAD
     IU          sid     = 0;       ///< owning session id (0 = none)
     int         fb      = 0;       ///< output chunks sent for the current line
-    bool        ses     = false;   ///< true: web-session shell (owns a text line, not just a word)
     const char *tib     = NULL;    ///< input cursor, parked here while swapped out
     char       *tbuf    = NULL;    ///< owned copy of the current line
     uint32_t    key     = 0;       ///< owner: browser-tab id (0 = none)
@@ -318,10 +328,22 @@ void task_start(int tid);                 ///< start a task with given task/VM i
 int  task_state(int tid);                 ///< return the state of a task
 void task_status();
 bool task_pause(int ms=0);                ///< pause current task (returns if any task ran)
+#if USE_PTHREAD
+#define FORTH_LOCK()
+#define FORTH_UNLOCK(f)
+
+#else // !USE_PTHREAD
+bool    forth_lock(int ms);                 ///< engine lock (recursive), ms<0 = wait forever
+void    forth_unlock(bool vm0=false);
+#define FORTH_LOCK()     forth_lock(-1)
+#define FORTH_UNLOCK(f)  forth_unlock(f)
+#endif  // USE_PTHREAD
 
 #else   // DO_MULTITASK
 #define vm_pool_init()
 #define vm_pool_stop()
+#define FORTH_LOCK()
+#define FORTH_UNLOCK(f)
 
 #endif // DO_MULTITASK
 ///@}
@@ -380,7 +402,7 @@ void pstr(const char *str, io_op op=SPCS);               ///< print string
 ///@name Debug functions
 ///@{
 const Code *tok2code(IU tok);             ///< get Code pointer from given token/address
-void ss_dump(VM &vm, bool forced=false);  ///< show data stack content
+void ss_dump(VM &vm);                     ///< show data stack content
 void see(IU pfa, int base);               ///< disassemble user defined word
 void words();                             ///< list dictionary words
 void dict_dump();                         ///< dump dictionary
