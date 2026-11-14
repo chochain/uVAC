@@ -115,7 +115,7 @@ int forth_run(
         }
         if (vm.state == NEST || vm.wake) { rc = RUN_MORE; break; }
     }
-    if (rc == RUN_DONE && !vm.compile) { ss_dump(vm); pstr(" ok\n"); }
+    if (rc == RUN_DONE && !vm.compile) { ss_dump(vm); pstr("ok\n"); }
     
     g_compiler = vm.compile ? tid : -1;
     io_detach(vm);                                          /// * park tib, flush output
