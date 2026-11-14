@@ -3,10 +3,33 @@
 /// @brief eForth - cooperative multitasking: PAUSE + TASK + START, web sessions as tasks
 ///
 #include "ceforth.h"
+#include "forth_api.h"
 
 #if DO_MULTITASK && !USE_PTHREAD
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
+#if E4_FREERTOS
+static R_MUTEX _lock = nullptr;
+static bool _lock_ready()  { return _lock != nullptr; }
+static void _lock_create() { if (!_lock) _lock = xSemaphoreCreateRecursiveMutex(); }
+static bool _lock_take(int ms) {
+    return xSemaphoreTakeRecursive(
+        _lock, ms < 0 ? portMAX_DELAY : pdMS_TO_TICKS(ms)) == pdTRUE;
+}
+static void _lock_give()   { xSemaphoreGiveRecursive(_lock); }
+
+#else // !E4_FREERTOS: x86, ARM Linux, macOS...
+static R_MUTEX _lock;                  ///< same semantics as FreeRTOS recursive mutex
+static bool _lock_on = false;          ///< armed by vm_pool_init, like _lock != nullptr
+
+static bool _lock_ready()  { return _lock_on; }
+static void _lock_create() { _lock_on = true; }
+static bool _lock_take(int ms) {
+    if (ms < 0)  { _lock.lock(); return true; }
+    if (ms == 0) return _lock.try_lock();
+    return _lock.try_lock_for(std::chrono::milliseconds(ms));
+}
+static void _lock_give()   { _lock.unlock(); }
+
+#endif // E4_FREERTOS
 
 extern List<VM, E4_VM_POOL_SZ> _vm;    ///< VM pool defined in ceforth_task.cpp
 extern IU gStop[];                     ///< defined in ceforth.cpp
@@ -20,16 +43,13 @@ VM& vm_get(int id) {
 ///
 ///> engine lock: one slice of Forth at a time (dictionary, pmem, tib and obuf are shared)
 ///
-static SemaphoreHandle_t _lock = nullptr;
-
 bool forth_lock(int ms) {
-    if (!_lock) return true;           /// * before t_pool_init: single threaded
-    return xSemaphoreTakeRecursive(
-        _lock, ms < 0 ? portMAX_DELAY : pdMS_TO_TICKS(ms)) == pdTRUE;
+    if (!_lock_ready()) return true;   /// * before vm_pool_init: single threaded
+    return _lock_take(ms);
 }
 void forth_unlock(bool vm0) {
     g_compiler = vm0 ? 0 : -1;         /// * shell owns the compiler while ':' is open
-    if (_lock) xSemaphoreGiveRecursive(_lock);
+    if (_lock_ready()) _lock_give();
 }
 
 uint32_t forth_cur_tid()        { return (uint32_t)g_cur; }
@@ -64,7 +84,7 @@ int forth_run(
     if (!vm.ses || vm.sid != sid) {                         /// * stale msg: closed, or slot reused
         forth_unlock(); return RUN_GONE;
     }
-    if (g_compiler >= 0 && g_compiler != tid) {             /// * someone else has an open ':' definition
+    if (g_compiler >= 0 && g_compiler != (int)tid) {        /// * someone else has an open ':' definition
         forth_unlock(); return RUN_BUSY;
     }
     
@@ -95,7 +115,7 @@ int forth_run(
         }
         if (vm.state == NEST || vm.wake) { rc = RUN_MORE; break; }
     }
-    if (rc == RUN_DONE && !vm.compile) ss_dump(vm);
+    if (rc == RUN_DONE && !vm.compile) { ss_dump(vm); pstr(" ok\n"); }
     
     g_compiler = vm.compile ? tid : -1;
     io_detach(vm);                                          /// * park tib, flush output
@@ -108,7 +128,7 @@ int forth_run(
 }
 
 void vm_pool_init() {
-    if (!_lock) _lock = xSemaphoreCreateRecursiveMutex();
+    _lock_create();
     LOG("[SYSTEM] cooperative tasker, %d slots\n", E4_VM_POOL_SZ);
 }
 void vm_pool_stop() {}
@@ -188,7 +208,7 @@ bool session_close(uint32_t tid) {
         LOG("[SYSTEM] session_close(%d) timed out\n", tid);
         return false;
     }
-    if (g_compiler == tid) g_compiler = -1;   /// * release an abandoned ':' definition
+    if (g_compiler==(int)tid) g_compiler = -1;/// * release an abandoned ':' definition
     free(v.tbuf);
     
     v.ss.idx  = v.rs.idx = 0;
